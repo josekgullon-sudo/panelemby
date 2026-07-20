@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesión · Panel Emby</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="login-page">
+<div class="login-box">
+  <h1>Panel Emby</h1>
+  <p class="muted">Accede con tu usuario del panel o de Emby</p>
+  <% if (error) { %><div class="flash flash-error"><%= error %></div><% } %>
+  <form method="post" action="/login">
+    <label>Usuario
+      <input type="text" name="username" required autofocus autocomplete="username">
+    </label>
+    <label>Contraseña
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button class="btn btn-primary btn-block">Entrar</button>
+  </form>
+</div>
+</body>
+</html>

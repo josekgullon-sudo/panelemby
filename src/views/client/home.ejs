@@ -1,0 +1,41 @@
+<%- include('../partials/header', { title: 'Mi cuenta' }) %>
+
+<h1>Hola, <%= account.username %></h1>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-num <%= account.status === 'active' ? (days <= 7 ? 'warn' : '') : 'neg' %>">
+      <%= account.status === 'active' ? days : 0 %>
+    </div>
+    <div class="card-label">Días restantes</div>
+  </div>
+  <div class="card">
+    <div class="card-num"><%= account.expires_at.slice(0, 10) %></div>
+    <div class="card-label">Fecha de caducidad</div>
+  </div>
+  <div class="card">
+    <div class="card-num">
+      <% if (account.status === 'active') { %><span class="badge badge-ok">Activa</span>
+      <% } else { %><span class="badge badge-err">Caducada</span><% } %>
+    </div>
+    <div class="card-label">Estado<%= plan ? ' · Plan ' + plan : '' %></div>
+  </div>
+</div>
+
+<% if (account.status !== 'active') { %>
+  <div class="flash flash-error">Tu cuenta ha caducado. Contacta con tu proveedor para renovarla.</div>
+<% } else if (days <= 7) { %>
+  <div class="flash flash-error">Tu cuenta caduca en <%= days %> día<%= days === 1 ? '' : 's' %>. Contacta con tu proveedor para renovarla.</div>
+<% } %>
+
+<section class="panel">
+  <h2>Datos de conexión a Emby</h2>
+  <table class="kv">
+    <tr><th>Servidor</th><td><code><%= embyUrl %></code></td></tr>
+    <tr><th>Usuario</th><td><code><%= account.username %></code></td></tr>
+    <tr><th>Contraseña</th><td class="muted">la que te dio tu proveedor</td></tr>
+  </table>
+  <p class="muted">Introduce estos datos en la app de Emby de tu televisor, móvil u ordenador.</p>
+</section>
+
+<%- include('../partials/footer') %>

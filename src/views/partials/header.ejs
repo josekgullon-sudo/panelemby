@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> · Panel Emby</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">Panel Emby</span>
+    <% if (currentUser) { %>
+      <nav>
+        <% if (currentUser.role === 'admin') { %>
+          <a href="/admin">Inicio</a>
+          <a href="/admin/cuentas">Cuentas</a>
+          <a href="/admin/resellers">Resellers</a>
+          <a href="/admin/planes">Planes</a>
+          <a href="/admin/creditos">Créditos</a>
+        <% } else if (currentUser.role === 'reseller') { %>
+          <a href="/reseller">Inicio</a>
+          <a href="/reseller/cuentas">Mis cuentas</a>
+        <% } %>
+      </nav>
+      <div class="topbar-user">
+        <% if (currentUser.role === 'reseller') { %>
+          <span class="chip"><%= currentUser.credits %> créditos</span>
+        <% } %>
+        <span class="muted"><%= currentUser.username %></span>
+        <form method="post" action="/logout" class="inline"><button class="btn btn-ghost">Salir</button></form>
+      </div>
+    <% } %>
+  </div>
+</header>
+<main class="container">
+<% if (flash) { %>
+  <div class="flash flash-<%= flash.type %>"><%= flash.message %></div>
+<% } %>

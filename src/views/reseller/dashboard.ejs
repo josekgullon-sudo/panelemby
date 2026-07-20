@@ -1,0 +1,50 @@
+<%- include('../partials/header', { title: 'Mi panel' }) %>
+
+<h1>Mi panel</h1>
+
+<div class="cards">
+  <div class="card"><div class="card-num"><%= stats.credits %></div><div class="card-label">Créditos disponibles</div></div>
+  <div class="card"><div class="card-num"><%= stats.active %></div><div class="card-label">Cuentas activas</div></div>
+  <div class="card"><div class="card-num"><%= stats.expired %></div><div class="card-label">Caducadas</div></div>
+</div>
+
+<div class="columns">
+  <section>
+    <h2>Caducan en 7 días</h2>
+    <% if (upcoming.length === 0) { %>
+      <p class="muted">Ninguna cuenta caduca pronto.</p>
+    <% } else { %>
+      <table>
+        <tr><th>Usuario</th><th>Caduca</th><th>Días</th></tr>
+        <% upcoming.forEach(u => { %>
+          <tr>
+            <td><%= u.username %></td>
+            <td><%= u.expires_at.slice(0, 10) %></td>
+            <td><span class="badge badge-warn"><%= daysLeft(u.expires_at) %></span></td>
+          </tr>
+        <% }) %>
+      </table>
+      <p><a href="/reseller/cuentas">Ir a mis cuentas para renovar →</a></p>
+    <% } %>
+  </section>
+
+  <section>
+    <h2>Últimos movimientos</h2>
+    <% if (movements.length === 0) { %>
+      <p class="muted">Sin movimientos.</p>
+    <% } else { %>
+      <table>
+        <tr><th>Fecha</th><th>Movimiento</th><th>Saldo</th></tr>
+        <% movements.forEach(m => { %>
+          <tr>
+            <td><%= m.created_at.slice(0, 16) %></td>
+            <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
+            <td><%= m.balance_after %></td>
+          </tr>
+        <% }) %>
+      </table>
+    <% } %>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

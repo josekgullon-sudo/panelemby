@@ -1,0 +1,39 @@
+<%- include('../partials/header', { title: 'Planes' }) %>
+
+<h1>Planes</h1>
+
+<section class="panel">
+  <h2>Nuevo plan</h2>
+  <form method="post" action="/admin/planes" class="form-row">
+    <input type="text" name="name" placeholder="nombre (ej. Mensual)" required>
+    <input type="number" name="duration_days" placeholder="duración (días)" min="1" required>
+    <input type="number" name="credit_cost" placeholder="coste (créditos)" min="0" required>
+    <button class="btn btn-primary">Crear</button>
+  </form>
+</section>
+
+<% if (plans.length === 0) { %>
+  <p class="muted">No hay planes. Crea al menos uno para poder dar de alta cuentas.</p>
+<% } else { %>
+<table>
+  <tr><th>Nombre</th><th>Duración</th><th>Coste</th><th>Estado</th><th></th></tr>
+  <% plans.forEach(p => { %>
+    <tr>
+      <td><%= p.name %></td>
+      <td><%= p.duration_days %> días</td>
+      <td><%= p.credit_cost %> créditos</td>
+      <td>
+        <% if (p.is_active) { %><span class="badge badge-ok">activo</span>
+        <% } else { %><span class="badge badge-err">retirado</span><% } %>
+      </td>
+      <td>
+        <form method="post" action="/admin/planes/<%= p.id %>/toggle" class="inline">
+          <button class="btn btn-ghost"><%= p.is_active ? 'Retirar' : 'Reactivar' %></button>
+        </form>
+      </td>
+    </tr>
+  <% }) %>
+</table>
+<% } %>
+
+<%- include('../partials/footer') %>

@@ -1,0 +1,25 @@
+<%- include('../partials/header', { title: 'Créditos' }) %>
+
+<h1>Historial de créditos</h1>
+
+<% if (movements.length === 0) { %>
+  <p class="muted">Sin movimientos todavía.</p>
+<% } else { %>
+<table>
+  <tr><th>Fecha</th><th>Reseller</th><th>Movimiento</th><th>Saldo</th><th>Motivo</th><th>Cuenta</th><th>Por</th></tr>
+  <% const reasons = { recharge: 'Recarga', create_account: 'Alta', renew: 'Renovación', adjustment: 'Ajuste' }; %>
+  <% movements.forEach(m => { %>
+    <tr>
+      <td><%= m.created_at.slice(0, 16) %></td>
+      <td><%= m.reseller %></td>
+      <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
+      <td><%= m.balance_after %></td>
+      <td><%= reasons[m.reason] || m.reason %></td>
+      <td><%= m.account || '—' %></td>
+      <td><%= m.by_user %></td>
+    </tr>
+  <% }) %>
+</table>
+<% } %>
+
+<%- include('../partials/footer') %>

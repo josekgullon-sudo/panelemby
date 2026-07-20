@@ -1,0 +1,52 @@
+<%- include('../partials/header', { title: 'Dashboard' }) %>
+
+<h1>Dashboard</h1>
+
+<div class="cards">
+  <div class="card"><div class="card-num"><%= stats.active %></div><div class="card-label">Cuentas activas</div></div>
+  <div class="card"><div class="card-num"><%= stats.expired %></div><div class="card-label">Caducadas</div></div>
+  <div class="card"><div class="card-num"><%= stats.resellers %></div><div class="card-label">Resellers activos</div></div>
+  <div class="card"><div class="card-num"><%= stats.creditsSpent %></div><div class="card-label">Créditos gastados</div></div>
+</div>
+
+<div class="columns">
+  <section>
+    <h2>Próximas caducidades (7 días)</h2>
+    <% if (upcoming.length === 0) { %>
+      <p class="muted">Nada caduca en los próximos 7 días.</p>
+    <% } else { %>
+      <table>
+        <tr><th>Usuario</th><th>Reseller</th><th>Caduca</th><th>Días</th></tr>
+        <% upcoming.forEach(u => { %>
+          <tr>
+            <td><%= u.username %></td>
+            <td><%= u.owner %></td>
+            <td><%= u.expires_at.slice(0, 10) %></td>
+            <td><span class="badge badge-warn"><%= daysLeft(u.expires_at) %></span></td>
+          </tr>
+        <% }) %>
+      </table>
+    <% } %>
+  </section>
+
+  <section>
+    <h2>Usuarios por reseller</h2>
+    <% if (byReseller.length === 0) { %>
+      <p class="muted">Aún no hay resellers. <a href="/admin/resellers">Crea el primero</a>.</p>
+    <% } else { %>
+      <table>
+        <tr><th>Reseller</th><th>Activos</th><th>Caducados</th><th>Créditos</th></tr>
+        <% byReseller.forEach(r => { %>
+          <tr>
+            <td><%= r.username %></td>
+            <td><%= r.active %></td>
+            <td><%= r.expired %></td>
+            <td><%= r.credits %></td>
+          </tr>
+        <% }) %>
+      </table>
+    <% } %>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

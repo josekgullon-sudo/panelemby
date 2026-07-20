@@ -1,0 +1,65 @@
+<%- include('../partials/header', { title: 'Mis cuentas' }) %>
+
+<h1>Mis cuentas</h1>
+
+<section class="panel">
+  <h2>Nueva cuenta</h2>
+  <% if (plans.length === 0) { %>
+    <p class="muted">No hay planes disponibles. Contacta con el administrador.</p>
+  <% } else { %>
+  <form method="post" action="/reseller/cuentas" class="form-row">
+    <input type="text" name="username" placeholder="usuario" required>
+    <input type="password" name="password" placeholder="contraseña" required>
+    <select name="plan_id" required>
+      <% plans.forEach(p => { %>
+        <option value="<%= p.id %>"><%= p.name %> (<%= p.duration_days %> días, <%= p.credit_cost %> cr.)</option>
+      <% }) %>
+    </select>
+    <input type="text" name="notes" placeholder="notas (opcional)">
+    <button class="btn btn-primary">Crear en Emby</button>
+  </form>
+  <% } %>
+</section>
+
+<% if (list.length === 0) { %>
+  <p class="muted">Aún no has creado ninguna cuenta.</p>
+<% } else { %>
+<table>
+  <tr><th>Usuario</th><th>Plan</th><th>Caduca</th><th>Días</th><th>Estado</th><th>Acciones</th></tr>
+  <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
+    <tr>
+      <td><%= a.username %></td>
+      <td><%= a.plan || '—' %></td>
+      <td><%= a.expires_at.slice(0, 10) %></td>
+      <td><%= a.status === 'active' ? d : '—' %></td>
+      <td>
+        <% if (a.status === 'active' && d <= 7) { %><span class="badge badge-warn">caduca pronto</span>
+        <% } else if (a.status === 'active') { %><span class="badge badge-ok">activa</span>
+        <% } else { %><span class="badge badge-err">caducada</span><% } %>
+      </td>
+      <td class="actions">
+        <details>
+          <summary>Renovar</summary>
+          <form method="post" action="/reseller/cuentas/<%= a.id %>/renovar" class="form-row">
+            <select name="plan_id" required>
+              <% plans.forEach(p => { %>
+                <option value="<%= p.id %>"><%= p.name %> (+<%= p.duration_days %> días, <%= p.credit_cost %> cr.)</option>
+              <% }) %>
+            </select>
+            <button class="btn">Renovar</button>
+          </form>
+        </details>
+        <details>
+          <summary>Contraseña</summary>
+          <form method="post" action="/reseller/cuentas/<%= a.id %>/password" class="form-row">
+            <input type="password" name="password" placeholder="nueva contraseña" required>
+            <button class="btn">Cambiar</button>
+          </form>
+        </details>
+      </td>
+    </tr>
+  <% }) %>
+</table>
+<% } %>
+
+<%- include('../partials/footer') %>
