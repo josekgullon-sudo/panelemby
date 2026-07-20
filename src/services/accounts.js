@@ -4,6 +4,7 @@
 // falla se compensa borrando/revirtiendo en Emby.
 
 const bcrypt = require('bcryptjs');
+const config = require('../config');
 const db = require('../db/database');
 const emby = require('./emby');
 
@@ -73,6 +74,36 @@ const addCredits = db.transaction((resellerId, amount, adminId) => {
   ).run(resellerId, amount, reseller.credits + amount, amount >= 0 ? 'recharge' : 'adjustment', adminId);
 });
 
+// --- Caducidad: qué se aplica en la Policy de Emby según el modo ---
+// disable  -> la cuenta no puede iniciar sesión
+// vitrina  -> puede entrar, pero solo ve la biblioteca-cartel (config.expiryLibrary)
+
+let showcaseLibraryIdCache = null;
+
+async function showcaseLibraryId() {
+  if (showcaseLibraryIdCache) return showcaseLibraryIdCache;
+  const raw = await emby.getVirtualFolders();
+  const libs = Array.isArray(raw) ? raw : raw.Items || [];
+  const lib = libs.find((l) => l.Name === config.expiryLibrary);
+  if (!lib) {
+    throw new BusinessError(
+      `No existe en Emby ninguna biblioteca llamada "${config.expiryLibrary}" (revisa EXPIRY_LIBRARY en el .env)`
+    );
+  }
+  showcaseLibraryIdCache = lib.ItemId || lib.Id;
+  return showcaseLibraryIdCache;
+}
+
+async function expiredPolicyPatch() {
+  if (config.expiryMode !== 'vitrina') return { IsDisabled: true };
+  return { EnableAllFolders: false, EnabledFolders: [await showcaseLibraryId()] };
+}
+
+async function restoredPolicyPatch() {
+  if (config.expiryMode !== 'vitrina') return { IsDisabled: false };
+  return { IsDisabled: false, EnableAllFolders: true, EnabledFolders: [] };
+}
+
 // --- Cuentas de Emby ---
 
 // Alta completa: crea en Emby, guarda en BD y descuenta créditos (si el dueño es reseller).
@@ -140,10 +171,10 @@ async function renewAccount({ accountId, planId, actor }) {
   }
 
   // Todo lo de Emby ANTES de tocar la BD (si falla, no se cobra nada):
-  // reactivar si estaba caducada y aplicar las pantallas del plan elegido.
+  // restaurar el acceso si estaba caducada y aplicar las pantallas del plan.
   const policyPatch = { SimultaneousStreamLimit: plan.screens || 1 };
   if (account.status === 'expired') {
-    policyPatch.IsDisabled = false;
+    Object.assign(policyPatch, await restoredPolicyPatch());
   }
   await emby.updatePolicy(account.emby_user_id, policyPatch);
 
@@ -216,4 +247,6 @@ module.exports = {
   changePassword,
   markDeleted,
   deleteAccount,
+  expiredPolicyPatch,
+  restoredPolicyPatch,
 };

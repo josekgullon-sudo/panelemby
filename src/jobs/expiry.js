@@ -9,7 +9,7 @@ const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
 const emby = require('../services/emby');
-const { markDeleted } = require('../services/accounts');
+const { markDeleted, expiredPolicyPatch, restoredPolicyPatch } = require('../services/accounts');
 
 async function run() {
   const started = Date.now();
@@ -24,7 +24,7 @@ async function run() {
     .all();
   for (const account of toExpire) {
     try {
-      await emby.setDisabled(account.emby_user_id, true);
+      await emby.updatePolicy(account.emby_user_id, await expiredPolicyPatch());
       db.prepare("UPDATE emby_accounts SET status = 'expired' WHERE id = ?").run(account.id);
       disabled++;
     } catch (err) {
@@ -39,7 +39,7 @@ async function run() {
     .all();
   for (const account of toReactivate) {
     try {
-      await emby.setDisabled(account.emby_user_id, false);
+      await emby.updatePolicy(account.emby_user_id, await restoredPolicyPatch());
       db.prepare("UPDATE emby_accounts SET status = 'active' WHERE id = ?").run(account.id);
       reenabled++;
     } catch (err) {

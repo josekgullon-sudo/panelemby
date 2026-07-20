@@ -46,6 +46,11 @@ async function getSystemInfo() {
   return embyRequest('GET', '/System/Info');
 }
 
+// Bibliotecas del servidor (para el modo vitrina)
+async function getVirtualFolders() {
+  return embyRequest('GET', '/Library/VirtualFolders');
+}
+
 // --- Usuarios ---
 
 async function listUsers() {
@@ -95,6 +100,7 @@ async function deleteUser(embyUserId) {
 module.exports = {
   EmbyError,
   getSystemInfo,
+  getVirtualFolders,
   listUsers,
   getUser,
   createUser,

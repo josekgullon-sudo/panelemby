@@ -22,6 +22,21 @@ const config = {
 
   deleteAfterDays: parseInt(process.env.DELETE_AFTER_DAYS || '7', 10),
   expiryCron: process.env.EXPIRY_CRON || '30 4 * * *',
+
+  // Qué pasa en Emby al caducar una cuenta:
+  //   disable  -> se desactiva (no puede iniciar sesión)
+  //   vitrina  -> sigue entrando, pero solo ve la biblioteca-cartel (EXPIRY_LIBRARY)
+  expiryMode: (process.env.EXPIRY_MODE || 'disable').trim(),
+  expiryLibrary: (process.env.EXPIRY_LIBRARY || '').trim(),
 };
+
+if (!['disable', 'vitrina'].includes(config.expiryMode)) {
+  console.error(`[config] EXPIRY_MODE debe ser "disable" o "vitrina" (vale: "${config.expiryMode}")`);
+  process.exit(1);
+}
+if (config.expiryMode === 'vitrina' && !config.expiryLibrary) {
+  console.error('[config] EXPIRY_MODE=vitrina necesita EXPIRY_LIBRARY con el nombre exacto de la biblioteca-cartel de Emby');
+  process.exit(1);
+}
 
 module.exports = config;
