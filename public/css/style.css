@@ -549,6 +549,42 @@ select { cursor: pointer; }
 .client-line strong { color: var(--text); }
 .client-hero .flash { margin: 0; }
 
+/* ---------- Modal de bienvenida ---------- */
+
+dialog.modal {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px 26px;
+  width: 440px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
+.modal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.modal-head h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+.modal-sub { color: var(--text-dim); font-size: 13px; margin: 4px 0 12px; }
+.welcome-text {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.65;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0 0 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: all;
+}
+.modal-actions { display: flex; gap: 8px; }
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 760px) {

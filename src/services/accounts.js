@@ -106,7 +106,8 @@ async function createAccount({ username, password, planId, owner, notes }) {
       }
       return info.lastInsertRowid;
     });
-    return insertTx();
+    const accountId = insertTx();
+    return { id: accountId, expiresAt, plan };
   } catch (err) {
     await emby.deleteUser(embyUser.Id).catch(() => {});
     throw err;

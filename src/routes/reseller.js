@@ -1,4 +1,5 @@
 const express = require('express');
+const config = require('../config');
 const db = require('../db/database');
 const accounts = require('../services/accounts');
 const { requirePanelRole } = require('../middleware/auth');
@@ -57,21 +58,37 @@ router.get('/cuentas', (req, res) => {
   sql += ' ORDER BY a.expires_at';
   const list = db.prepare(sql).all(...params);
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
-  res.render('reseller/accounts', { list, plans, q, estado, daysLeft: accounts.daysLeft });
+  const newAccount = req.session.newAccount || null;
+  delete req.session.newAccount;
+  res.render('reseller/accounts', {
+    list,
+    plans,
+    q,
+    estado,
+    newAccount,
+    embyPublicUrl: config.embyPublicUrl,
+    daysLeft: accounts.daysLeft,
+  });
 });
 
 router.post(
   '/cuentas',
   wrap(async (req, res) => {
     try {
-      await accounts.createAccount({
+      const created = await accounts.createAccount({
         username: req.body.username,
         password: req.body.password,
         planId: parseInt(req.body.plan_id, 10),
         owner: req.user,
         notes: req.body.notes,
       });
-      req.setFlash('ok', `Cuenta ${req.body.username} creada en Emby`);
+      req.session.newAccount = {
+        username: req.body.username.trim(),
+        password: req.body.password,
+        expiresAt: created.expiresAt,
+        plan: created.plan.name,
+        screens: created.plan.screens,
+      };
       res.redirect('/reseller/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');

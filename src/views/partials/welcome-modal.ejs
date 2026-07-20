@@ -1,0 +1,52 @@
+<% if (newAccount) { %>
+<dialog class="modal" id="welcome-modal" aria-labelledby="welcome-title">
+  <div class="modal-head">
+    <h3 id="welcome-title">Cuenta creada</h3>
+    <span class="badge badge-ok">lista para enviar</span>
+  </div>
+  <p class="modal-sub">Copia este mensaje y pégaselo a tu cliente:</p>
+  <pre class="welcome-text" id="welcome-text">🎬 ¡Bienvenido a Totalflix!
+
+📺 Servidor: <%= embyPublicUrl %>
+👤 Usuario: <%= newAccount.username %>
+🔑 Contraseña: <%= newAccount.password %>
+🖥️ Pantallas: <%= newAccount.screens %>
+📦 Plan: <%= newAccount.plan %>
+📅 Vence: <%= newAccount.expiresAt.slice(0, 10) %>
+
+Descarga la app de Emby en tu TV, móvil u ordenador e introduce estos datos. ¡A disfrutar! 🍿</pre>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-primary" id="copy-welcome">Copiar mensaje</button>
+    <form method="dialog"><button class="btn">Cerrar</button></form>
+  </div>
+</dialog>
+<script>
+(function () {
+  var d = document.getElementById('welcome-modal');
+  if (d && d.showModal) d.showModal();
+  var b = document.getElementById('copy-welcome');
+  function done() {
+    b.textContent = '¡Copiado!';
+    setTimeout(function () { b.textContent = 'Copiar mensaje'; }, 1800);
+  }
+  b.addEventListener('click', function () {
+    var t = document.getElementById('welcome-text').innerText;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(done, fallback);
+    } else {
+      fallback();
+    }
+    function fallback() {
+      var r = document.createRange();
+      r.selectNodeContents(document.getElementById('welcome-text'));
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      document.execCommand('copy');
+      s.removeAllRanges();
+      done();
+    }
+  });
+})();
+</script>
+<% } %>
