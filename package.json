@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "create-admin": "node scripts/create-admin.js",
+    "expiry": "node scripts/run-expiry.js",
     "test-emby": "node scripts/test-emby.js"
   },
   "engines": {

@@ -1,0 +1,24 @@
+[Unit]
+Description=Panel de gestion de usuarios Emby
+# Si Emby corre en la misma maquina con systemd, arrancar despues de el:
+After=network.target emby-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=panelemby
+Group=panelemby
+WorkingDirectory=/opt/panelemby
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+# Endurecimiento basico
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/panelemby/data
+
+[Install]
+WantedBy=multi-user.target
