@@ -8,6 +8,9 @@ const db = require('./db/database');
 
 const app = express();
 
+// Disponible en todas las vistas EJS
+app.locals.formatDuration = require('./services/accounts').formatDuration;
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.set('trust proxy', 1); // por si en producción va detrás de un proxy/nginx

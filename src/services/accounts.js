@@ -29,6 +29,17 @@ function daysLeft(expiresAt) {
   return Math.ceil(ms / (24 * 3600 * 1000));
 }
 
+// Duración legible: los planes guardan días (pueden ser fracciones para demos por horas).
+function formatDuration(days) {
+  if (days < 1) {
+    const h = Math.round(days * 24);
+    return `${h} hora${h === 1 ? '' : 's'}`;
+  }
+  if (days % 30 === 0 && days >= 60) return `${days / 30} meses`;
+  const d = Math.round(days * 10) / 10;
+  return `${d} día${d === 1 ? '' : 's'}`;
+}
+
 // --- Créditos ---
 
 // Descuenta créditos de un reseller y registra el movimiento. SIEMPRE dentro de una transacción.
@@ -170,6 +181,15 @@ async function changePassword({ accountId, newPassword, actor }) {
   );
 }
 
+// Marca una cuenta como borrada liberando su nombre de usuario: la fila se
+// conserva como historial (con sufijo #del) y el nombre queda libre para
+// crear una cuenta nueva que se llame igual.
+function markDeleted(accountId) {
+  db.prepare(
+    "UPDATE emby_accounts SET status = 'deleted', username = username || '#del' || id WHERE id = ?"
+  ).run(accountId);
+}
+
 // Borrado manual: elimina en Emby y marca como 'deleted' en el panel (historial se conserva).
 async function deleteAccount({ accountId, actor }) {
   const account = db.prepare("SELECT * FROM emby_accounts WHERE id = ? AND status != 'deleted'").get(accountId);
@@ -181,7 +201,7 @@ async function deleteAccount({ accountId, actor }) {
     // Si Emby ya no la tiene (404), seguimos; otros errores sí abortan
     if (err.status !== 404) throw err;
   });
-  db.prepare("UPDATE emby_accounts SET status = 'deleted' WHERE id = ?").run(account.id);
+  markDeleted(account.id);
 }
 
 module.exports = {
@@ -189,9 +209,11 @@ module.exports = {
   toSqlDate,
   parseSqlDate,
   daysLeft,
+  formatDuration,
   addCredits,
   createAccount,
   renewAccount,
   changePassword,
+  markDeleted,
   deleteAccount,
 };

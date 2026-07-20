@@ -18,6 +18,12 @@ if (!planCols.some((c) => c.name === 'screens')) {
   db.exec('ALTER TABLE plans ADD COLUMN screens INTEGER NOT NULL DEFAULT 1');
 }
 
+// Las cuentas borradas conservan la fila como historial pero liberan el nombre
+// (sufijo #del + id). Normaliza las borradas antes de este cambio.
+db.exec(
+  "UPDATE emby_accounts SET username = username || '#del' || id WHERE status = 'deleted' AND username NOT LIKE '%#del%'"
+);
+
 // Catálogo inicial de planes (solo si la tabla está vacía)
 if (db.prepare('SELECT COUNT(*) AS n FROM plans').get().n === 0) {
   const seed = db.prepare('INSERT INTO plans (name, duration_days, credit_cost, screens) VALUES (?, ?, ?, ?)');

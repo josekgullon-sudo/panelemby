@@ -9,6 +9,7 @@ const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
 const emby = require('../services/emby');
+const { markDeleted } = require('../services/accounts');
 
 async function run() {
   const started = Date.now();
@@ -60,7 +61,7 @@ async function run() {
         await emby.deleteUser(account.emby_user_id).catch((err) => {
           if (err.status !== 404) throw err; // si Emby ya no la tiene, seguimos
         });
-        db.prepare("UPDATE emby_accounts SET status = 'deleted' WHERE id = ?").run(account.id);
+        markDeleted(account.id);
         deleted++;
       } catch (err) {
         errors++;

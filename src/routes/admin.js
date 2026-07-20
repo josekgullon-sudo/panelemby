@@ -163,11 +163,16 @@ router.get('/planes', (req, res) => {
 
 function readPlanForm(body) {
   const name = (body.name || '').trim();
-  const days = parseInt(body.duration_days, 10);
+  const value = parseFloat(body.duration_value);
+  const unit = body.duration_unit;
   const cost = parseInt(body.credit_cost, 10);
   const screens = parseInt(body.screens, 10);
   if (!name) throw new accounts.BusinessError('El plan necesita un nombre');
-  if (!Number.isInteger(days) || days <= 0) throw new accounts.BusinessError('Duración inválida');
+  if (!Number.isFinite(value) || value <= 0) throw new accounts.BusinessError('Duración inválida');
+  if (!['horas', 'dias', 'meses'].includes(unit)) throw new accounts.BusinessError('Unidad de duración inválida');
+  // Todo se guarda en días (las horas, como fracción de día)
+  const days = unit === 'horas' ? Math.round((value / 24) * 10000) / 10000 : unit === 'meses' ? value * 30 : value;
+  if (days > 3650) throw new accounts.BusinessError('La duración máxima es 10 años');
   if (!Number.isInteger(cost) || cost < 0) throw new accounts.BusinessError('Coste inválido');
   if (!Number.isInteger(screens) || screens < 1 || screens > 10) {
     throw new accounts.BusinessError('Las pantallas deben estar entre 1 y 10');

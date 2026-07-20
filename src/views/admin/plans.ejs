@@ -1,13 +1,43 @@
 <%- include('../partials/header', { title: 'Planes', nav: 'planes' }) %>
 
+<%
+// Para precargar el editor: elige la unidad más natural según los días guardados
+function unitFor(days) {
+  if (days < 1) return { value: Math.round(days * 24), unit: 'horas' };
+  if (days % 30 === 0 && days >= 60) return { value: days / 30, unit: 'meses' };
+  return { value: days, unit: 'dias' };
+}
+%>
+
 <section class="panel">
   <div class="panel-head"><h2>Nuevo plan</h2></div>
-  <form method="post" action="/admin/planes" class="form-row">
-    <input type="text" name="name" placeholder="nombre (ej. Mensual · 1 pantalla)" required aria-label="Nombre">
-    <input type="number" name="duration_days" placeholder="duración (días)" min="1" required aria-label="Duración en días">
-    <input type="number" name="credit_cost" placeholder="coste (créditos)" min="0" required aria-label="Coste en créditos">
-    <input type="number" name="screens" placeholder="pantallas" min="1" max="10" value="1" required aria-label="Pantallas">
-    <button class="btn btn-primary">Crear plan</button>
+  <form method="post" action="/admin/planes" class="form-row form-fields">
+    <div class="field grow">
+      <label for="np-name">Nombre del plan</label>
+      <input id="np-name" type="text" name="name" placeholder="ej. Mensual · 1 pantalla" required>
+    </div>
+    <div class="field">
+      <label for="np-dur">Duración</label>
+      <div class="duo">
+        <input id="np-dur" type="number" name="duration_value" min="1" step="1" value="1" required>
+        <select name="duration_unit" aria-label="Unidad de duración">
+          <option value="horas">horas</option>
+          <option value="dias">días</option>
+          <option value="meses" selected>meses</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="np-cost">Coste en créditos</label>
+      <input id="np-cost" type="number" name="credit_cost" min="0" value="1" required>
+    </div>
+    <div class="field">
+      <label for="np-scr">Pantallas</label>
+      <input id="np-scr" type="number" name="screens" min="1" max="10" value="1" required>
+    </div>
+    <div class="field field-btn">
+      <button class="btn btn-primary">Crear plan</button>
+    </div>
   </form>
   <p class="hint">Las pantallas se aplican en Emby como límite de reproducciones simultáneas al crear o renovar.</p>
 </section>
@@ -20,10 +50,10 @@
   <table>
     <thead><tr><th>Plan</th><th>Duración</th><th>Coste</th><th>Pantallas</th><th>Estado</th><th>Acciones</th></tr></thead>
     <tbody>
-    <% plans.forEach(p => { %>
+    <% plans.forEach(p => { const u = unitFor(p.duration_days); %>
       <tr>
         <td class="td-strong"><%= p.name %></td>
-        <td><%= p.duration_days %> días</td>
+        <td><%= formatDuration(p.duration_days) %></td>
         <td><span class="chip-soft"><%= p.credit_cost %> cr.</span></td>
         <td><%= p.screens %></td>
         <td>
@@ -33,11 +63,31 @@
         <td class="actions">
           <details>
             <summary>Editar</summary>
-            <form method="post" action="/admin/planes/<%= p.id %>/editar" class="form-stack">
-              <input type="text" name="name" value="<%= p.name %>" required aria-label="Nombre">
-              <input type="number" name="duration_days" value="<%= p.duration_days %>" min="1" required aria-label="Duración en días">
-              <input type="number" name="credit_cost" value="<%= p.credit_cost %>" min="0" required aria-label="Coste en créditos">
-              <input type="number" name="screens" value="<%= p.screens %>" min="1" max="10" required aria-label="Pantallas">
+            <form method="post" action="/admin/planes/<%= p.id %>/editar" class="form-stack form-fields">
+              <div class="pop-title">Editando «<%= p.name %>»</div>
+              <div class="field">
+                <label for="ep-name-<%= p.id %>">Nombre del plan</label>
+                <input id="ep-name-<%= p.id %>" type="text" name="name" value="<%= p.name %>" required>
+              </div>
+              <div class="field">
+                <label for="ep-dur-<%= p.id %>">Duración</label>
+                <div class="duo">
+                  <input id="ep-dur-<%= p.id %>" type="number" name="duration_value" min="1" step="1" value="<%= u.value %>" required>
+                  <select name="duration_unit" aria-label="Unidad de duración">
+                    <option value="horas" <%= u.unit === 'horas' ? 'selected' : '' %>>horas</option>
+                    <option value="dias" <%= u.unit === 'dias' ? 'selected' : '' %>>días</option>
+                    <option value="meses" <%= u.unit === 'meses' ? 'selected' : '' %>>meses</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="ep-cost-<%= p.id %>">Coste en créditos</label>
+                <input id="ep-cost-<%= p.id %>" type="number" name="credit_cost" value="<%= p.credit_cost %>" min="0" required>
+              </div>
+              <div class="field">
+                <label for="ep-scr-<%= p.id %>">Pantallas</label>
+                <input id="ep-scr-<%= p.id %>" type="number" name="screens" value="<%= p.screens %>" min="1" max="10" required>
+              </div>
               <button class="btn btn-primary btn-sm">Guardar cambios</button>
             </form>
           </details>

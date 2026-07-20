@@ -10,7 +10,7 @@
     <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña">
     <select name="plan_id" required aria-label="Plan">
       <% plans.forEach(p => { %>
-        <option value="<%= p.id %>"><%= p.name %> · <%= p.duration_days %> días · <%= p.credit_cost %> cr.</option>
+        <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
       <% }) %>
     </select>
     <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
@@ -63,7 +63,7 @@
             <form method="post" action="/admin/cuentas/<%= a.id %>/renovar" class="form-stack">
               <select name="plan_id" required aria-label="Plan de renovación">
                 <% plans.forEach(p => { %>
-                  <option value="<%= p.id %>"><%= p.name %> · +<%= p.duration_days %> días · <%= p.credit_cost %> cr.</option>
+                  <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
                 <% }) %>
               </select>
               <button class="btn btn-primary btn-sm">Renovar cuenta</button>

@@ -369,6 +369,23 @@ input:focus, select:focus { border-color: var(--green-deep); outline: none; }
 select { cursor: pointer; }
 
 .form-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.form-fields { align-items: flex-end; gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { margin: 0; font-size: 11.5px; }
+.field.grow { flex: 1; min-width: 180px; }
+.field-btn { justify-content: flex-end; }
+.duo { display: flex; gap: 6px; }
+.duo input { width: 84px; }
+.duo select { width: auto; }
+.pop-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--green);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 2px;
+  max-width: 240px;
+}
 .form-row input, .form-row select { width: auto; flex: 1; min-width: 130px; }
 .form-row input[type="number"] { min-width: 105px; flex: 0 1 130px; }
 .form-stack { display: flex; flex-direction: column; gap: 8px; min-width: 210px; }
