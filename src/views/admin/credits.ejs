@@ -1,25 +1,28 @@
-<%- include('../partials/header', { title: 'Créditos' }) %>
+<%- include('../partials/header', { title: 'Créditos', nav: 'creditos' }) %>
 
-<h1>Historial de créditos</h1>
-
-<% if (movements.length === 0) { %>
-  <p class="muted">Sin movimientos todavía.</p>
-<% } else { %>
-<table>
-  <tr><th>Fecha</th><th>Reseller</th><th>Movimiento</th><th>Saldo</th><th>Motivo</th><th>Cuenta</th><th>Por</th></tr>
-  <% const reasons = { recharge: 'Recarga', create_account: 'Alta', renew: 'Renovación', adjustment: 'Ajuste' }; %>
-  <% movements.forEach(m => { %>
-    <tr>
-      <td><%= m.created_at.slice(0, 16) %></td>
-      <td><%= m.reseller %></td>
-      <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
-      <td><%= m.balance_after %></td>
-      <td><%= reasons[m.reason] || m.reason %></td>
-      <td><%= m.account || '—' %></td>
-      <td><%= m.by_user %></td>
-    </tr>
-  <% }) %>
-</table>
-<% } %>
+<section class="panel">
+  <div class="panel-head"><h2>Historial de movimientos <span class="count"><%= movements.length %></span></h2></div>
+  <% if (movements.length === 0) { %>
+    <p class="empty">Sin movimientos todavía. Aparecerán aquí las recargas, altas y renovaciones.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Fecha</th><th>Reseller</th><th>Movimiento</th><th>Saldo</th><th>Motivo</th><th>Cuenta</th><th>Ejecutado por</th></tr></thead>
+    <tbody>
+    <% const reasons = { recharge: 'Recarga', create_account: 'Alta', renew: 'Renovación', adjustment: 'Ajuste' }; %>
+    <% movements.forEach(m => { %>
+      <tr>
+        <td class="td-dim"><%= m.created_at.slice(0, 16) %></td>
+        <td class="td-strong"><%= m.reseller %></td>
+        <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
+        <td><%= m.balance_after %></td>
+        <td><%= reasons[m.reason] || m.reason %></td>
+        <td><%= m.account || '—' %></td>
+        <td class="td-dim"><%= m.by_user %></td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
 
 <%- include('../partials/footer') %>

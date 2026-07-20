@@ -1,41 +1,37 @@
-<%- include('../partials/header', { title: 'Mi cuenta' }) %>
+<%- include('../partials/header', { title: 'Mi cuenta', nav: '' }) %>
 
-<h1>Hola, <%= account.username %></h1>
-
-<div class="cards">
-  <div class="card">
-    <div class="card-num <%= account.status === 'active' ? (days <= 7 ? 'warn' : '') : 'neg' %>">
-      <%= account.status === 'active' ? days : 0 %>
-    </div>
-    <div class="card-label">Días restantes</div>
+<div class="client-hero">
+  <div class="client-days <%= account.status !== 'active' ? 'is-expired' : days <= 7 ? 'is-warn' : '' %>">
+    <div class="client-days-num"><%= account.status === 'active' ? Math.max(days, 0) : 0 %></div>
+    <div class="client-days-label">días restantes</div>
   </div>
-  <div class="card">
-    <div class="card-num"><%= account.expires_at.slice(0, 10) %></div>
-    <div class="card-label">Fecha de caducidad</div>
-  </div>
-  <div class="card">
-    <div class="card-num">
-      <% if (account.status === 'active') { %><span class="badge badge-ok">Activa</span>
-      <% } else { %><span class="badge badge-err">Caducada</span><% } %>
-    </div>
-    <div class="card-label">Estado<%= plan ? ' · Plan ' + plan : '' %></div>
+  <div class="client-summary">
+    <h2>Hola, <%= account.username %></h2>
+    <% if (account.status === 'active') { %>
+      <%- include('../partials/meter', { days: days, duration: plan ? plan.duration_days : null }) %>
+      <p class="client-line">Tu suscripción vence el <strong><%= account.expires_at.slice(0, 10) %></strong><% if (plan) { %> · Plan <strong><%= plan.name %></strong><% } %></p>
+    <% } else { %>
+      <p class="client-line">Tu suscripción venció el <strong><%= account.expires_at.slice(0, 10) %></strong></p>
+    <% } %>
+    <% if (account.status !== 'active') { %>
+      <div class="flash flash-error">Tu cuenta ha caducado. Contacta con tu proveedor para renovarla.</div>
+    <% } else if (days <= 7) { %>
+      <div class="flash flash-error">Tu cuenta caduca en <%= days %> día<%= days === 1 ? '' : 's' %>. Contacta con tu proveedor para renovarla.</div>
+    <% } %>
   </div>
 </div>
 
-<% if (account.status !== 'active') { %>
-  <div class="flash flash-error">Tu cuenta ha caducado. Contacta con tu proveedor para renovarla.</div>
-<% } else if (days <= 7) { %>
-  <div class="flash flash-error">Tu cuenta caduca en <%= days %> día<%= days === 1 ? '' : 's' %>. Contacta con tu proveedor para renovarla.</div>
-<% } %>
-
 <section class="panel">
-  <h2>Datos de conexión a Emby</h2>
+  <div class="panel-head"><h2>Conéctate a Emby</h2></div>
   <table class="kv">
     <tr><th>Servidor</th><td><code><%= embyUrl %></code></td></tr>
     <tr><th>Usuario</th><td><code><%= account.username %></code></td></tr>
-    <tr><th>Contraseña</th><td class="muted">la que te dio tu proveedor</td></tr>
+    <tr><th>Contraseña</th><td class="td-dim">la que te dio tu proveedor</td></tr>
+    <% if (plan && plan.screens) { %>
+      <tr><th>Pantallas</th><td><%= plan.screens %> reproducción<%= plan.screens === 1 ? '' : 'es' %> a la vez</td></tr>
+    <% } %>
   </table>
-  <p class="muted">Introduce estos datos en la app de Emby de tu televisor, móvil u ordenador.</p>
+  <p class="hint">Descarga la app de Emby en tu televisor, móvil u ordenador e introduce estos datos.</p>
 </section>
 
 <%- include('../partials/footer') %>

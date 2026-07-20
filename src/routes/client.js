@@ -9,11 +9,11 @@ router.use(requireClient);
 
 router.get('/', (req, res) => {
   const plan = req.account.plan_id
-    ? db.prepare('SELECT name FROM plans WHERE id = ?').get(req.account.plan_id)
+    ? db.prepare('SELECT name, screens, duration_days FROM plans WHERE id = ?').get(req.account.plan_id)
     : null;
   res.render('client/home', {
     account: req.account,
-    plan: plan ? plan.name : null,
+    plan,
     days: accounts.daysLeft(req.account.expires_at),
     embyUrl: config.embyPublicUrl,
   });

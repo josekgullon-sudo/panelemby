@@ -3,37 +3,73 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title><%= title %> · Panel Emby</title>
+  <meta name="color-scheme" content="dark">
+  <title><%= title %> · Totalflix EMBY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <span class="brand">Panel Emby</span>
-    <% if (currentUser) { %>
-      <nav>
-        <% if (currentUser.role === 'admin') { %>
-          <a href="/admin">Inicio</a>
-          <a href="/admin/cuentas">Cuentas</a>
-          <a href="/admin/resellers">Resellers</a>
-          <a href="/admin/planes">Planes</a>
-          <a href="/admin/creditos">Créditos</a>
-        <% } else if (currentUser.role === 'reseller') { %>
-          <a href="/reseller">Inicio</a>
-          <a href="/reseller/cuentas">Mis cuentas</a>
-        <% } %>
+<% const navKey = typeof nav !== 'undefined' ? nav : ''; %>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="wordmark" href="/">
+      <span class="wordmark-total">TOTAL<em>FLIX</em></span>
+      <span class="wordmark-emby">EMBY</span>
+    </a>
+    <% if (currentUser && currentUser.role === 'admin') { %>
+      <nav class="side-nav" aria-label="Principal">
+        <a href="/admin" class="<%= navKey === 'dashboard' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z"/></svg>
+          Dashboard</a>
+        <a href="/admin/cuentas" class="<%= navKey === 'cuentas' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5z"/></svg>
+          Cuentas</a>
+        <a href="/admin/resellers" class="<%= navKey === 'resellers' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="5" r="2.5"/><circle cx="11" cy="5" r="2.5"/><path d="M1 14c0-2.5 1.8-4 4-4s4 1.5 4 4zM9.5 10.4c.5-.3 1-.4 1.5-.4 2.2 0 4 1.5 4 4h-4.2"/></svg>
+          Resellers</a>
+        <a href="/admin/planes" class="<%= navKey === 'planes' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l7 4-7 4-7-4zM1 9l7 4 7-4"/></svg>
+          Planes</a>
+        <a href="/admin/creditos" class="<%= navKey === 'creditos' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="6" ry="2.5"/><path d="M2 4v8c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V4M2 8c0 1.4 2.7 2.5 6 2.5S14 9.4 14 8"/></svg>
+          Créditos</a>
       </nav>
-      <div class="topbar-user">
-        <% if (currentUser.role === 'reseller') { %>
-          <span class="chip"><%= currentUser.credits %> créditos</span>
-        <% } %>
-        <span class="muted"><%= currentUser.username %></span>
-        <form method="post" action="/logout" class="inline"><button class="btn btn-ghost">Salir</button></form>
+    <% } else if (currentUser && currentUser.role === 'reseller') { %>
+      <nav class="side-nav" aria-label="Principal">
+        <a href="/reseller" class="<%= navKey === 'dashboard' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z"/></svg>
+          Dashboard</a>
+        <a href="/reseller/cuentas" class="<%= navKey === 'cuentas' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5z"/></svg>
+          Mis cuentas</a>
+      </nav>
+    <% } %>
+    <% if (currentUser) { %>
+      <div class="side-foot">
+        <div class="side-user">
+          <span class="side-user-name"><%= currentUser.username %></span>
+          <span class="side-user-role"><%= currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'reseller' ? 'Reseller' : 'Cliente' %></span>
+        </div>
+        <form method="post" action="/logout">
+          <button class="btn btn-ghost btn-sm">Cerrar sesión</button>
+        </form>
       </div>
     <% } %>
-  </div>
-</header>
-<main class="container">
-<% if (flash) { %>
-  <div class="flash flash-<%= flash.type %>"><%= flash.message %></div>
-<% } %>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1 class="page-title"><%= title %></h1>
+      <% if (currentUser && currentUser.role === 'reseller') { %>
+        <span class="credit-chip" title="Créditos disponibles">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="6" ry="2.5"/><path d="M2 4v8c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V4M2 8c0 1.4 2.7 2.5 6 2.5S14 9.4 14 8"/></svg>
+          <%= currentUser.credits %> créditos
+        </span>
+      <% } %>
+    </header>
+    <main class="content">
+    <% if (flash) { %>
+      <div class="flash flash-<%= flash.type %>" role="status"><%= flash.message %></div>
+    <% } %>

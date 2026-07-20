@@ -1,65 +1,86 @@
-<%- include('../partials/header', { title: 'Mis cuentas' }) %>
-
-<h1>Mis cuentas</h1>
+<%- include('../partials/header', { title: 'Mis cuentas', nav: 'cuentas' }) %>
 
 <section class="panel">
-  <h2>Nueva cuenta</h2>
+  <div class="panel-head"><h2>Nueva cuenta</h2></div>
   <% if (plans.length === 0) { %>
-    <p class="muted">No hay planes disponibles. Contacta con el administrador.</p>
+    <p class="empty">No hay planes disponibles. Contacta con el administrador.</p>
   <% } else { %>
   <form method="post" action="/reseller/cuentas" class="form-row">
-    <input type="text" name="username" placeholder="usuario" required>
-    <input type="password" name="password" placeholder="contraseña" required>
-    <select name="plan_id" required>
+    <input type="text" name="username" placeholder="usuario" required aria-label="Usuario">
+    <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña">
+    <select name="plan_id" required aria-label="Plan">
       <% plans.forEach(p => { %>
-        <option value="<%= p.id %>"><%= p.name %> (<%= p.duration_days %> días, <%= p.credit_cost %> cr.)</option>
+        <option value="<%= p.id %>"><%= p.name %> · <%= p.duration_days %> días · <%= p.credit_cost %> cr.</option>
       <% }) %>
     </select>
-    <input type="text" name="notes" placeholder="notas (opcional)">
+    <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
     <button class="btn btn-primary">Crear en Emby</button>
   </form>
   <% } %>
 </section>
 
-<% if (list.length === 0) { %>
-  <p class="muted">Aún no has creado ninguna cuenta.</p>
-<% } else { %>
-<table>
-  <tr><th>Usuario</th><th>Plan</th><th>Caduca</th><th>Días</th><th>Estado</th><th>Acciones</th></tr>
-  <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
-    <tr>
-      <td><%= a.username %></td>
-      <td><%= a.plan || '—' %></td>
-      <td><%= a.expires_at.slice(0, 10) %></td>
-      <td><%= a.status === 'active' ? d : '—' %></td>
-      <td>
-        <% if (a.status === 'active' && d <= 7) { %><span class="badge badge-warn">caduca pronto</span>
-        <% } else if (a.status === 'active') { %><span class="badge badge-ok">activa</span>
-        <% } else { %><span class="badge badge-err">caducada</span><% } %>
-      </td>
-      <td class="actions">
-        <details>
-          <summary>Renovar</summary>
-          <form method="post" action="/reseller/cuentas/<%= a.id %>/renovar" class="form-row">
-            <select name="plan_id" required>
-              <% plans.forEach(p => { %>
-                <option value="<%= p.id %>"><%= p.name %> (+<%= p.duration_days %> días, <%= p.credit_cost %> cr.)</option>
-              <% }) %>
-            </select>
-            <button class="btn">Renovar</button>
-          </form>
-        </details>
-        <details>
-          <summary>Contraseña</summary>
-          <form method="post" action="/reseller/cuentas/<%= a.id %>/password" class="form-row">
-            <input type="password" name="password" placeholder="nueva contraseña" required>
-            <button class="btn">Cambiar</button>
-          </form>
-        </details>
-      </td>
-    </tr>
-  <% }) %>
-</table>
-<% } %>
+<section class="panel">
+  <div class="panel-head">
+    <h2>Cartera <span class="count"><%= list.length %></span></h2>
+    <form method="get" action="/reseller/cuentas" class="filter-row">
+      <input type="search" name="q" value="<%= q %>" placeholder="Buscar cuenta" aria-label="Buscar">
+      <select name="estado" aria-label="Estado">
+        <option value="">Todas</option>
+        <option value="active" <%= estado === 'active' ? 'selected' : '' %>>Activas</option>
+        <option value="expired" <%= estado === 'expired' ? 'selected' : '' %>>Caducadas</option>
+      </select>
+      <button class="btn">Filtrar</button>
+    </form>
+  </div>
+
+  <% if (list.length === 0) { %>
+    <p class="empty"><%= q || estado ? 'Ninguna cuenta coincide con el filtro.' : 'Aún no has creado ninguna cuenta. Da de alta la primera arriba.' %></p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Cuenta</th><th>Plan</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody>
+    <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
+      <tr>
+        <td class="td-strong"><%= a.username %><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %></td>
+        <td class="td-dim"><%= a.plan || '—' %></td>
+        <td><%= a.expires_at.slice(0, 10) %></td>
+        <td class="td-meter">
+          <% if (a.status === 'active') { %>
+            <%- include('../partials/meter', { days: d, duration: a.duration_days }) %>
+            <span class="meter-days"><%= d <= 0 ? 'hoy' : d + ' d' %></span>
+          <% } else { %><span class="td-dim">—</span><% } %>
+        </td>
+        <td>
+          <% if (a.status === 'active' && d <= 0) { %><span class="badge badge-warn">vence hoy</span>
+          <% } else if (a.status === 'active' && d <= 7) { %><span class="badge badge-warn">caduca pronto</span>
+          <% } else if (a.status === 'active') { %><span class="badge badge-ok">activa</span>
+          <% } else { %><span class="badge badge-err">caducada</span><% } %>
+        </td>
+        <td class="actions">
+          <details>
+            <summary>Renovar</summary>
+            <form method="post" action="/reseller/cuentas/<%= a.id %>/renovar" class="form-stack">
+              <select name="plan_id" required aria-label="Plan de renovación">
+                <% plans.forEach(p => { %>
+                  <option value="<%= p.id %>"><%= p.name %> · +<%= p.duration_days %> días · <%= p.credit_cost %> cr.</option>
+                <% }) %>
+              </select>
+              <button class="btn btn-primary btn-sm">Renovar cuenta</button>
+            </form>
+          </details>
+          <details>
+            <summary>Contraseña</summary>
+            <form method="post" action="/reseller/cuentas/<%= a.id %>/password" class="form-stack">
+              <input type="password" name="password" placeholder="nueva contraseña" required aria-label="Nueva contraseña">
+              <button class="btn btn-sm">Cambiar contraseña</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
 
 <%- include('../partials/footer') %>

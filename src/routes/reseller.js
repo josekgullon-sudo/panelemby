@@ -25,9 +25,10 @@ router.get('/', (req, res) => {
   };
   const upcoming = db
     .prepare(
-      `SELECT username, expires_at FROM emby_accounts
-       WHERE owner_id = ? AND status = 'active' AND expires_at <= datetime('now', '+7 days')
-       ORDER BY expires_at LIMIT 20`
+      `SELECT a.username, a.expires_at, pl.duration_days
+       FROM emby_accounts a LEFT JOIN plans pl ON pl.id = a.plan_id
+       WHERE a.owner_id = ? AND a.status = 'active' AND a.expires_at <= datetime('now', '+7 days')
+       ORDER BY a.expires_at LIMIT 20`
     )
     .all(req.user.id);
   const movements = db
@@ -39,16 +40,24 @@ router.get('/', (req, res) => {
 // --- Sus cuentas ---
 
 router.get('/cuentas', (req, res) => {
-  const list = db
-    .prepare(
-      `SELECT a.*, pl.name AS plan
-       FROM emby_accounts a LEFT JOIN plans pl ON pl.id = a.plan_id
-       WHERE a.owner_id = ? AND a.status != 'deleted'
-       ORDER BY a.expires_at`
-    )
-    .all(req.user.id);
-  const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days').all();
-  res.render('reseller/accounts', { list, plans, daysLeft: accounts.daysLeft });
+  const q = (req.query.q || '').trim();
+  const estado = ['active', 'expired'].includes(req.query.estado) ? req.query.estado : '';
+  let sql = `SELECT a.*, pl.name AS plan, pl.duration_days
+             FROM emby_accounts a LEFT JOIN plans pl ON pl.id = a.plan_id
+             WHERE a.owner_id = ? AND a.status != 'deleted'`;
+  const params = [req.user.id];
+  if (q) {
+    sql += ' AND a.username LIKE ?';
+    params.push(`%${q}%`);
+  }
+  if (estado) {
+    sql += ' AND a.status = ?';
+    params.push(estado);
+  }
+  sql += ' ORDER BY a.expires_at';
+  const list = db.prepare(sql).all(...params);
+  const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
+  res.render('reseller/accounts', { list, plans, q, estado, daysLeft: accounts.daysLeft });
 });
 
 router.post(

@@ -1,0 +1,10 @@
+<%
+// Medidor de tiempo restante: días que quedan sobre la duración del plan.
+// Espera: days (días restantes), duration (días del plan, puede ser null).
+const _dur = (typeof duration === 'number' && duration > 0) ? duration : 30;
+const _pct = Math.max(0, Math.min(100, Math.round((days / _dur) * 100)));
+const _tone = days <= 1 ? 'hot' : days <= 7 ? 'warm' : 'fine';
+%>
+<div class="meter meter-<%= _tone %>" role="img" aria-label="<%= days %> días restantes">
+  <span style="width: <%= _pct %>%"></span>
+</div>

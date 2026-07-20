@@ -2,14 +2,18 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title><%= code %> · Panel Emby</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title><%= code %> · Totalflix EMBY</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body class="login-page">
-<div class="login-box">
-  <h1><%= code %></h1>
-  <p class="muted"><%= message %></p>
-  <a class="btn btn-primary" href="/">Volver</a>
+<div class="login-stage">
+  <div class="login-box login-box-center">
+    <div class="error-code"><%= code %></div>
+    <p class="login-hint"><%= message %></p>
+    <a class="btn btn-primary" href="/">Volver al panel</a>
+  </div>
 </div>
 </body>
 </html>

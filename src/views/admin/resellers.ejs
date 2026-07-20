@@ -1,52 +1,55 @@
-<%- include('../partials/header', { title: 'Resellers' }) %>
-
-<h1>Resellers</h1>
+<%- include('../partials/header', { title: 'Resellers', nav: 'resellers' }) %>
 
 <section class="panel">
-  <h2>Nuevo reseller</h2>
+  <div class="panel-head"><h2>Nuevo reseller</h2></div>
   <form method="post" action="/admin/resellers" class="form-row">
-    <input type="text" name="username" placeholder="usuario" required>
-    <input type="password" name="password" placeholder="contraseña (mín. 6)" required>
-    <button class="btn btn-primary">Crear</button>
+    <input type="text" name="username" placeholder="usuario" required aria-label="Usuario">
+    <input type="password" name="password" placeholder="contraseña (mín. 6)" required aria-label="Contraseña">
+    <button class="btn btn-primary">Crear reseller</button>
   </form>
 </section>
 
-<% if (resellers.length === 0) { %>
-  <p class="muted">No hay resellers todavía.</p>
-<% } else { %>
-<table>
-  <tr><th>Usuario</th><th>Créditos</th><th>Cuentas</th><th>Estado</th><th>Acciones</th></tr>
-  <% resellers.forEach(r => { %>
-    <tr>
-      <td><%= r.username %></td>
-      <td><strong><%= r.credits %></strong></td>
-      <td><%= r.accounts %></td>
-      <td>
-        <% if (r.is_active) { %><span class="badge badge-ok">activo</span>
-        <% } else { %><span class="badge badge-err">suspendido</span><% } %>
-      </td>
-      <td class="actions">
-        <details>
-          <summary>Créditos</summary>
-          <form method="post" action="/admin/resellers/<%= r.id %>/credits" class="form-row">
-            <input type="number" name="amount" placeholder="+recarga / -ajuste" required>
-            <button class="btn">Aplicar</button>
+<section class="panel">
+  <div class="panel-head"><h2>Equipo <span class="count"><%= resellers.length %></span></h2></div>
+  <% if (resellers.length === 0) { %>
+    <p class="empty">No hay resellers todavía. Crea el primero arriba y recárgale créditos para que empiece a vender.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Reseller</th><th>Créditos</th><th>Cuentas</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody>
+    <% resellers.forEach(r => { %>
+      <tr>
+        <td class="td-strong"><%= r.username %></td>
+        <td><span class="chip-soft"><%= r.credits %></span></td>
+        <td><%= r.accounts %></td>
+        <td>
+          <% if (r.is_active) { %><span class="badge badge-ok">activo</span>
+          <% } else { %><span class="badge badge-err">suspendido</span><% } %>
+        </td>
+        <td class="actions">
+          <details>
+            <summary>Créditos</summary>
+            <form method="post" action="/admin/resellers/<%= r.id %>/credits" class="form-stack">
+              <input type="number" name="amount" placeholder="+recarga / -ajuste" required aria-label="Cantidad">
+              <button class="btn btn-primary btn-sm">Aplicar movimiento</button>
+            </form>
+          </details>
+          <details>
+            <summary>Contraseña</summary>
+            <form method="post" action="/admin/resellers/<%= r.id %>/password" class="form-stack">
+              <input type="password" name="password" placeholder="nueva contraseña" required aria-label="Nueva contraseña">
+              <button class="btn btn-sm">Cambiar contraseña</button>
+            </form>
+          </details>
+          <form method="post" action="/admin/resellers/<%= r.id %>/toggle" class="inline">
+            <button class="btn btn-ghost btn-sm"><%= r.is_active ? 'Suspender' : 'Reactivar' %></button>
           </form>
-        </details>
-        <details>
-          <summary>Contraseña</summary>
-          <form method="post" action="/admin/resellers/<%= r.id %>/password" class="form-row">
-            <input type="password" name="password" placeholder="nueva contraseña" required>
-            <button class="btn">Cambiar</button>
-          </form>
-        </details>
-        <form method="post" action="/admin/resellers/<%= r.id %>/toggle" class="inline">
-          <button class="btn btn-ghost"><%= r.is_active ? 'Suspender' : 'Reactivar' %></button>
-        </form>
-      </td>
-    </tr>
-  <% }) %>
-</table>
-<% } %>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
 
 <%- include('../partials/footer') %>

@@ -83,6 +83,12 @@ async function createAccount({ username, password, planId, owner, notes }) {
 
   // 1) Emby primero (es lo que puede fallar por red)
   const embyUser = await emby.createUser(username, password);
+  try {
+    await emby.setStreamLimit(embyUser.Id, plan.screens || 1);
+  } catch (err) {
+    await emby.deleteUser(embyUser.Id).catch(() => {});
+    throw err;
+  }
 
   // 2) BD en transacción; si falla, compensamos borrando el usuario recién creado en Emby
   try {
@@ -121,10 +127,13 @@ async function renewAccount({ accountId, planId, actor }) {
     throw new BusinessError(`Créditos insuficientes: el plan cuesta ${plan.credit_cost} y tienes ${actor.credits}`);
   }
 
-  // Reactivar en Emby ANTES de tocar la BD (si falla, no se cobra nada)
+  // Todo lo de Emby ANTES de tocar la BD (si falla, no se cobra nada):
+  // reactivar si estaba caducada y aplicar las pantallas del plan elegido.
+  const policyPatch = { SimultaneousStreamLimit: plan.screens || 1 };
   if (account.status === 'expired') {
-    await emby.setDisabled(account.emby_user_id, false);
+    policyPatch.IsDisabled = false;
   }
+  await emby.updatePolicy(account.emby_user_id, policyPatch);
 
   const base = Math.max(Date.now(), parseSqlDate(account.expires_at).getTime());
   const newExpiry = toSqlDate(new Date(base + plan.duration_days * 24 * 3600 * 1000));

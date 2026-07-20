@@ -1,4 +1,4 @@
-# Panel Emby
+# Totalflix EMBY
 
 Panel web de gestión de usuarios para Emby Server con tres roles:
 
@@ -111,7 +111,7 @@ sudo systemctl restart panelemby
 ## Puesta en marcha (primeros pasos en el panel)
 
 1. Entra en `http://IP:3000` con el admin creado por script.
-2. **Planes** → crea p. ej. "Mensual", 30 días, 1 crédito.
+2. **Planes** → en la primera ejecución se crea solo el catálogo completo (demo 24 h y 1/3/6/12 meses en 1 o 2 pantallas); edita costes o crea más si quieres. Las pantallas del plan se aplican en Emby como límite de reproducciones simultáneas.
 3. **Resellers** → crea el reseller; luego "Créditos" → recárgale saldo.
 4. El reseller entra con su usuario, va a **Mis cuentas** → "Nueva cuenta": se crea el usuario en Emby con su contraseña y se le descuentan los créditos del plan.
 5. El cliente final entra al panel con ese mismo usuario/contraseña y ve su caducidad y datos de conexión.

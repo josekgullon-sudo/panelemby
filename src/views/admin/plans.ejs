@@ -1,39 +1,55 @@
-<%- include('../partials/header', { title: 'Planes' }) %>
-
-<h1>Planes</h1>
+<%- include('../partials/header', { title: 'Planes', nav: 'planes' }) %>
 
 <section class="panel">
-  <h2>Nuevo plan</h2>
+  <div class="panel-head"><h2>Nuevo plan</h2></div>
   <form method="post" action="/admin/planes" class="form-row">
-    <input type="text" name="name" placeholder="nombre (ej. Mensual)" required>
-    <input type="number" name="duration_days" placeholder="duración (días)" min="1" required>
-    <input type="number" name="credit_cost" placeholder="coste (créditos)" min="0" required>
-    <button class="btn btn-primary">Crear</button>
+    <input type="text" name="name" placeholder="nombre (ej. Mensual · 1 pantalla)" required aria-label="Nombre">
+    <input type="number" name="duration_days" placeholder="duración (días)" min="1" required aria-label="Duración en días">
+    <input type="number" name="credit_cost" placeholder="coste (créditos)" min="0" required aria-label="Coste en créditos">
+    <input type="number" name="screens" placeholder="pantallas" min="1" max="10" value="1" required aria-label="Pantallas">
+    <button class="btn btn-primary">Crear plan</button>
   </form>
+  <p class="hint">Las pantallas se aplican en Emby como límite de reproducciones simultáneas al crear o renovar.</p>
 </section>
 
-<% if (plans.length === 0) { %>
-  <p class="muted">No hay planes. Crea al menos uno para poder dar de alta cuentas.</p>
-<% } else { %>
-<table>
-  <tr><th>Nombre</th><th>Duración</th><th>Coste</th><th>Estado</th><th></th></tr>
-  <% plans.forEach(p => { %>
-    <tr>
-      <td><%= p.name %></td>
-      <td><%= p.duration_days %> días</td>
-      <td><%= p.credit_cost %> créditos</td>
-      <td>
-        <% if (p.is_active) { %><span class="badge badge-ok">activo</span>
-        <% } else { %><span class="badge badge-err">retirado</span><% } %>
-      </td>
-      <td>
-        <form method="post" action="/admin/planes/<%= p.id %>/toggle" class="inline">
-          <button class="btn btn-ghost"><%= p.is_active ? 'Retirar' : 'Reactivar' %></button>
-        </form>
-      </td>
-    </tr>
-  <% }) %>
-</table>
-<% } %>
+<section class="panel">
+  <div class="panel-head"><h2>Catálogo <span class="count"><%= plans.length %></span></h2></div>
+  <% if (plans.length === 0) { %>
+    <p class="empty">No hay planes. Crea al menos uno para poder dar de alta cuentas.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Plan</th><th>Duración</th><th>Coste</th><th>Pantallas</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody>
+    <% plans.forEach(p => { %>
+      <tr>
+        <td class="td-strong"><%= p.name %></td>
+        <td><%= p.duration_days %> días</td>
+        <td><span class="chip-soft"><%= p.credit_cost %> cr.</span></td>
+        <td><%= p.screens %></td>
+        <td>
+          <% if (p.is_active) { %><span class="badge badge-ok">activo</span>
+          <% } else { %><span class="badge badge-err">retirado</span><% } %>
+        </td>
+        <td class="actions">
+          <details>
+            <summary>Editar</summary>
+            <form method="post" action="/admin/planes/<%= p.id %>/editar" class="form-stack">
+              <input type="text" name="name" value="<%= p.name %>" required aria-label="Nombre">
+              <input type="number" name="duration_days" value="<%= p.duration_days %>" min="1" required aria-label="Duración en días">
+              <input type="number" name="credit_cost" value="<%= p.credit_cost %>" min="0" required aria-label="Coste en créditos">
+              <input type="number" name="screens" value="<%= p.screens %>" min="1" max="10" required aria-label="Pantallas">
+              <button class="btn btn-primary btn-sm">Guardar cambios</button>
+            </form>
+          </details>
+          <form method="post" action="/admin/planes/<%= p.id %>/toggle" class="inline">
+            <button class="btn btn-ghost btn-sm"><%= p.is_active ? 'Retirar' : 'Reactivar' %></button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
 
 <%- include('../partials/footer') %>

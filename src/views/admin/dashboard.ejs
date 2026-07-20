@@ -1,52 +1,109 @@
-<%- include('../partials/header', { title: 'Dashboard' }) %>
-
-<h1>Dashboard</h1>
+<%- include('../partials/header', { title: 'Dashboard', nav: 'dashboard' }) %>
 
 <div class="cards">
-  <div class="card"><div class="card-num"><%= stats.active %></div><div class="card-label">Cuentas activas</div></div>
-  <div class="card"><div class="card-num"><%= stats.expired %></div><div class="card-label">Caducadas</div></div>
-  <div class="card"><div class="card-num"><%= stats.resellers %></div><div class="card-label">Resellers activos</div></div>
-  <div class="card"><div class="card-num"><%= stats.creditsSpent %></div><div class="card-label">Créditos gastados</div></div>
+  <div class="card">
+    <div class="card-label">Cuentas activas</div>
+    <div class="card-num"><%= stats.active %></div>
+  </div>
+  <div class="card <%= stats.dueToday > 0 ? 'card-alert' : '' %>">
+    <div class="card-label">Vencen hoy</div>
+    <div class="card-num"><%= stats.dueToday %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Vencen en 7 días</div>
+    <div class="card-num"><%= stats.dueWeek %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Caducadas</div>
+    <div class="card-num"><%= stats.expired %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Resellers activos</div>
+    <div class="card-num"><%= stats.resellers %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Créditos gastados · 30 días</div>
+    <div class="card-num"><%= stats.creditsSpent30 %></div>
+  </div>
 </div>
 
 <div class="columns">
-  <section>
-    <h2>Próximas caducidades (7 días)</h2>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Próximas caducidades</h2>
+      <a class="panel-link" href="/admin/cuentas?estado=active">Ver todas →</a>
+    </div>
     <% if (upcoming.length === 0) { %>
-      <p class="muted">Nada caduca en los próximos 7 días.</p>
+      <p class="empty">Nada caduca en los próximos 7 días. Todo en orden.</p>
     <% } else { %>
       <table>
-        <tr><th>Usuario</th><th>Reseller</th><th>Caduca</th><th>Días</th></tr>
-        <% upcoming.forEach(u => { %>
+        <thead><tr><th>Cuenta</th><th>Reseller</th><th>Vence</th><th class="th-meter">Tiempo restante</th></tr></thead>
+        <tbody>
+        <% upcoming.forEach(u => { const d = daysLeft(u.expires_at); %>
           <tr>
-            <td><%= u.username %></td>
+            <td class="td-strong"><%= u.username %></td>
             <td><%= u.owner %></td>
-            <td><%= u.expires_at.slice(0, 10) %></td>
-            <td><span class="badge badge-warn"><%= daysLeft(u.expires_at) %></span></td>
+            <td><%= d <= 0 ? 'Hoy' : u.expires_at.slice(0, 10) %></td>
+            <td class="td-meter">
+              <%- include('../partials/meter', { days: d, duration: u.duration_days }) %>
+              <span class="meter-days"><%= d <= 0 ? 'hoy' : d + ' d' %></span>
+            </td>
           </tr>
         <% }) %>
+        </tbody>
       </table>
     <% } %>
   </section>
 
-  <section>
-    <h2>Usuarios por reseller</h2>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Resellers</h2>
+      <a class="panel-link" href="/admin/resellers">Gestionar →</a>
+    </div>
     <% if (byReseller.length === 0) { %>
-      <p class="muted">Aún no hay resellers. <a href="/admin/resellers">Crea el primero</a>.</p>
+      <p class="empty">Aún no hay resellers. <a href="/admin/resellers">Crea el primero</a> para empezar a vender.</p>
     <% } else { %>
       <table>
-        <tr><th>Reseller</th><th>Activos</th><th>Caducados</th><th>Créditos</th></tr>
+        <thead><tr><th>Reseller</th><th>Activas</th><th>Caducadas</th><th>Créditos</th></tr></thead>
+        <tbody>
         <% byReseller.forEach(r => { %>
           <tr>
-            <td><%= r.username %></td>
+            <td class="td-strong"><%= r.username %></td>
             <td><%= r.active %></td>
             <td><%= r.expired %></td>
-            <td><%= r.credits %></td>
+            <td><span class="chip-soft"><%= r.credits %></span></td>
           </tr>
         <% }) %>
+        </tbody>
       </table>
     <% } %>
   </section>
 </div>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Actividad reciente</h2>
+    <a class="panel-link" href="/admin/creditos">Historial completo →</a>
+  </div>
+  <% if (recent.length === 0) { %>
+    <p class="empty">Sin movimientos de créditos todavía.</p>
+  <% } else { %>
+    <table>
+      <thead><tr><th>Fecha</th><th>Reseller</th><th>Movimiento</th><th>Motivo</th><th>Cuenta</th></tr></thead>
+      <tbody>
+      <% const reasons = { recharge: 'Recarga', create_account: 'Alta', renew: 'Renovación', adjustment: 'Ajuste' }; %>
+      <% recent.forEach(m => { %>
+        <tr>
+          <td class="td-dim"><%= m.created_at.slice(0, 16) %></td>
+          <td><%= m.reseller %></td>
+          <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
+          <td><%= reasons[m.reason] || m.reason %></td>
+          <td><%= m.account || '—' %></td>
+        </tr>
+      <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
 
 <%- include('../partials/footer') %>

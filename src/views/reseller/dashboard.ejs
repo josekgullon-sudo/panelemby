@@ -1,47 +1,63 @@
-<%- include('../partials/header', { title: 'Mi panel' }) %>
-
-<h1>Mi panel</h1>
+<%- include('../partials/header', { title: 'Dashboard', nav: 'dashboard' }) %>
 
 <div class="cards">
-  <div class="card"><div class="card-num"><%= stats.credits %></div><div class="card-label">Créditos disponibles</div></div>
-  <div class="card"><div class="card-num"><%= stats.active %></div><div class="card-label">Cuentas activas</div></div>
-  <div class="card"><div class="card-num"><%= stats.expired %></div><div class="card-label">Caducadas</div></div>
+  <div class="card card-accent">
+    <div class="card-label">Créditos disponibles</div>
+    <div class="card-num"><%= stats.credits %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Cuentas activas</div>
+    <div class="card-num"><%= stats.active %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Caducadas</div>
+    <div class="card-num"><%= stats.expired %></div>
+  </div>
 </div>
 
 <div class="columns">
-  <section>
-    <h2>Caducan en 7 días</h2>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Caducan en 7 días</h2>
+      <a class="panel-link" href="/reseller/cuentas">Mis cuentas →</a>
+    </div>
     <% if (upcoming.length === 0) { %>
-      <p class="muted">Ninguna cuenta caduca pronto.</p>
+      <p class="empty">Ninguna cuenta caduca pronto. Todo en orden.</p>
     <% } else { %>
       <table>
-        <tr><th>Usuario</th><th>Caduca</th><th>Días</th></tr>
-        <% upcoming.forEach(u => { %>
+        <thead><tr><th>Cuenta</th><th>Vence</th><th class="th-meter">Tiempo restante</th></tr></thead>
+        <tbody>
+        <% upcoming.forEach(u => { const d = daysLeft(u.expires_at); %>
           <tr>
-            <td><%= u.username %></td>
-            <td><%= u.expires_at.slice(0, 10) %></td>
-            <td><span class="badge badge-warn"><%= daysLeft(u.expires_at) %></span></td>
+            <td class="td-strong"><%= u.username %></td>
+            <td><%= d <= 0 ? 'Hoy' : u.expires_at.slice(0, 10) %></td>
+            <td class="td-meter">
+              <%- include('../partials/meter', { days: d, duration: u.duration_days }) %>
+              <span class="meter-days"><%= d <= 0 ? 'hoy' : d + ' d' %></span>
+            </td>
           </tr>
         <% }) %>
+        </tbody>
       </table>
-      <p><a href="/reseller/cuentas">Ir a mis cuentas para renovar →</a></p>
     <% } %>
   </section>
 
-  <section>
-    <h2>Últimos movimientos</h2>
+  <section class="panel">
+    <div class="panel-head"><h2>Últimos movimientos</h2></div>
     <% if (movements.length === 0) { %>
-      <p class="muted">Sin movimientos.</p>
+      <p class="empty">Sin movimientos. Cuando crees o renueves cuentas aparecerán aquí.</p>
     <% } else { %>
       <table>
-        <tr><th>Fecha</th><th>Movimiento</th><th>Saldo</th></tr>
+        <thead><tr><th>Fecha</th><th>Movimiento</th><th>Saldo</th></tr></thead>
+        <tbody>
         <% movements.forEach(m => { %>
           <tr>
-            <td><%= m.created_at.slice(0, 16) %></td>
+            <td class="td-dim"><%= m.created_at.slice(0, 16) %></td>
             <td class="<%= m.amount >= 0 ? 'pos' : 'neg' %>"><%= m.amount >= 0 ? '+' + m.amount : m.amount %></td>
             <td><%= m.balance_after %></td>
           </tr>
         <% }) %>
+        </tbody>
       </table>
     <% } %>
   </section>

@@ -23,9 +23,30 @@ router.get('/', (req, res) => {
   const stats = {
     active: db.prepare("SELECT COUNT(*) n FROM emby_accounts WHERE status = 'active'").get().n,
     expired: db.prepare("SELECT COUNT(*) n FROM emby_accounts WHERE status = 'expired'").get().n,
+    dueToday: db
+      .prepare("SELECT COUNT(*) n FROM emby_accounts WHERE status = 'active' AND date(expires_at) <= date('now')")
+      .get().n,
+    dueWeek: db
+      .prepare(
+        "SELECT COUNT(*) n FROM emby_accounts WHERE status = 'active' AND expires_at <= datetime('now', '+7 days')"
+      )
+      .get().n,
     resellers: db.prepare("SELECT COUNT(*) n FROM panel_users WHERE role = 'reseller' AND is_active = 1").get().n,
-    creditsSpent: db.prepare('SELECT COALESCE(-SUM(amount), 0) n FROM credit_transactions WHERE amount < 0').get().n,
+    creditsSpent30: db
+      .prepare(
+        "SELECT COALESCE(-SUM(amount), 0) n FROM credit_transactions WHERE amount < 0 AND created_at >= datetime('now', '-30 days')"
+      )
+      .get().n,
   };
+  const recent = db
+    .prepare(
+      `SELECT t.*, r.username AS reseller, a.username AS account
+       FROM credit_transactions t
+       JOIN panel_users r ON r.id = t.reseller_id
+       LEFT JOIN emby_accounts a ON a.id = t.account_id
+       ORDER BY t.id DESC LIMIT 8`
+    )
+    .all();
   const byReseller = db
     .prepare(
       `SELECT p.username, p.credits,
@@ -39,13 +60,15 @@ router.get('/', (req, res) => {
     .all();
   const upcoming = db
     .prepare(
-      `SELECT a.username, a.expires_at, p.username AS owner
-       FROM emby_accounts a JOIN panel_users p ON p.id = a.owner_id
+      `SELECT a.username, a.expires_at, p.username AS owner, pl.duration_days
+       FROM emby_accounts a
+       JOIN panel_users p ON p.id = a.owner_id
+       LEFT JOIN plans pl ON pl.id = a.plan_id
        WHERE a.status = 'active' AND a.expires_at <= datetime('now', '+7 days')
        ORDER BY a.expires_at LIMIT 20`
     )
     .all();
-  res.render('admin/dashboard', { stats, byReseller, upcoming, daysLeft: accounts.daysLeft });
+  res.render('admin/dashboard', { stats, byReseller, upcoming, recent, daysLeft: accounts.daysLeft });
 });
 
 // --- Resellers ---
@@ -137,19 +160,51 @@ router.get('/planes', (req, res) => {
   res.render('admin/plans', { plans });
 });
 
+function readPlanForm(body) {
+  const name = (body.name || '').trim();
+  const days = parseInt(body.duration_days, 10);
+  const cost = parseInt(body.credit_cost, 10);
+  const screens = parseInt(body.screens, 10);
+  if (!name) throw new accounts.BusinessError('El plan necesita un nombre');
+  if (!Number.isInteger(days) || days <= 0) throw new accounts.BusinessError('Duración inválida');
+  if (!Number.isInteger(cost) || cost < 0) throw new accounts.BusinessError('Coste inválido');
+  if (!Number.isInteger(screens) || screens < 1 || screens > 10) {
+    throw new accounts.BusinessError('Las pantallas deben estar entre 1 y 10');
+  }
+  return { name, days, cost, screens };
+}
+
 router.post('/planes', (req, res) => {
   try {
-    const name = (req.body.name || '').trim();
-    const days = parseInt(req.body.duration_days, 10);
-    const cost = parseInt(req.body.credit_cost, 10);
-    if (!name) throw new accounts.BusinessError('El plan necesita un nombre');
-    if (!Number.isInteger(days) || days <= 0) throw new accounts.BusinessError('Duración inválida');
-    if (!Number.isInteger(cost) || cost < 0) throw new accounts.BusinessError('Coste inválido');
-    if (db.prepare('SELECT 1 FROM plans WHERE name = ?').get(name)) {
+    const p = readPlanForm(req.body);
+    if (db.prepare('SELECT 1 FROM plans WHERE name = ?').get(p.name)) {
       throw new accounts.BusinessError('Ya existe un plan con ese nombre');
     }
-    db.prepare('INSERT INTO plans (name, duration_days, credit_cost) VALUES (?, ?, ?)').run(name, days, cost);
-    req.setFlash('ok', `Plan "${name}" creado`);
+    db.prepare('INSERT INTO plans (name, duration_days, credit_cost, screens) VALUES (?, ?, ?, ?)').run(
+      p.name,
+      p.days,
+      p.cost,
+      p.screens
+    );
+    req.setFlash('ok', `Plan "${p.name}" creado`);
+    res.redirect('/admin/planes');
+  } catch (err) {
+    backWithError(req, res, err, '/admin/planes');
+  }
+});
+
+// Editar un plan. No afecta a cuentas ya creadas (guardan su fecha de caducidad);
+// las próximas altas/renovaciones usan los valores nuevos.
+router.post('/planes/:id/editar', (req, res) => {
+  try {
+    const p = readPlanForm(req.body);
+    const dup = db.prepare('SELECT 1 FROM plans WHERE name = ? AND id != ?').get(p.name, req.params.id);
+    if (dup) throw new accounts.BusinessError('Ya existe otro plan con ese nombre');
+    const r = db
+      .prepare('UPDATE plans SET name = ?, duration_days = ?, credit_cost = ?, screens = ? WHERE id = ?')
+      .run(p.name, p.days, p.cost, p.screens, req.params.id);
+    if (r.changes === 0) throw new accounts.BusinessError('Plan no encontrado');
+    req.setFlash('ok', `Plan "${p.name}" actualizado`);
     res.redirect('/admin/planes');
   } catch (err) {
     backWithError(req, res, err, '/admin/planes');
@@ -165,18 +220,26 @@ router.post('/planes/:id/toggle', (req, res) => {
 // --- Cuentas de Emby (todas) ---
 
 router.get('/cuentas', (req, res) => {
-  const list = db
-    .prepare(
-      `SELECT a.*, p.username AS owner, pl.name AS plan
-       FROM emby_accounts a
-       JOIN panel_users p ON p.id = a.owner_id
-       LEFT JOIN plans pl ON pl.id = a.plan_id
-       WHERE a.status != 'deleted'
-       ORDER BY a.expires_at`
-    )
-    .all();
-  const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days').all();
-  res.render('admin/accounts', { list, plans, daysLeft: accounts.daysLeft });
+  const q = (req.query.q || '').trim();
+  const estado = ['active', 'expired'].includes(req.query.estado) ? req.query.estado : '';
+  let sql = `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
+             FROM emby_accounts a
+             JOIN panel_users p ON p.id = a.owner_id
+             LEFT JOIN plans pl ON pl.id = a.plan_id
+             WHERE a.status != 'deleted'`;
+  const params = [];
+  if (q) {
+    sql += ' AND (a.username LIKE ? OR p.username LIKE ?)';
+    params.push(`%${q}%`, `%${q}%`);
+  }
+  if (estado) {
+    sql += ' AND a.status = ?';
+    params.push(estado);
+  }
+  sql += ' ORDER BY a.expires_at';
+  const list = db.prepare(sql).all(...params);
+  const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
+  res.render('admin/accounts', { list, plans, q, estado, daysLeft: accounts.daysLeft });
 });
 
 router.post(

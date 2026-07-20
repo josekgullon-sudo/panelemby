@@ -72,12 +72,20 @@ async function setPassword(embyUserId, newPassword) {
 }
 
 // Emby reemplaza la Policy completa en cada POST: hay que leerla,
-// modificar solo lo necesario y reenviarla entera.
-async function setDisabled(embyUserId, disabled) {
+// aplicar solo los cambios y reenviarla entera.
+async function updatePolicy(embyUserId, patch) {
   const user = await getUser(embyUserId);
-  const policy = user.Policy || {};
-  policy.IsDisabled = disabled;
+  const policy = Object.assign(user.Policy || {}, patch);
   return embyRequest('POST', `/Users/${embyUserId}/Policy`, policy);
+}
+
+async function setDisabled(embyUserId, disabled) {
+  return updatePolicy(embyUserId, { IsDisabled: disabled });
+}
+
+// Límite de reproducciones simultáneas (pantallas del plan). 0 = sin límite en Emby.
+async function setStreamLimit(embyUserId, screens) {
+  return updatePolicy(embyUserId, { SimultaneousStreamLimit: screens });
 }
 
 async function deleteUser(embyUserId) {
@@ -91,6 +99,8 @@ module.exports = {
   getUser,
   createUser,
   setPassword,
+  updatePolicy,
   setDisabled,
+  setStreamLimit,
   deleteUser,
 };
