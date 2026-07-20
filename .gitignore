@@ -1,0 +1,22 @@
+# Dependencias
+node_modules/
+
+# Secretos
+.env
+
+# Base de datos SQLite (datos de producción/desarrollo, nunca al repo)
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Sesiones
+sessions/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

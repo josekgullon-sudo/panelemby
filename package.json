@@ -1,0 +1,27 @@
+{
+  "name": "panelemby",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Panel de gestión de usuarios para Emby: admin, resellers con créditos y clientes finales",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "create-admin": "node scripts/create-admin.js",
+    "test-emby": "node scripts/test-emby.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.2.0",
+    "better-sqlite3-session-store": "^0.1.0",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "node-cron": "^3.0.3"
+  }
+}
