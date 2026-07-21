@@ -32,7 +32,7 @@ npm run dev                 # http://localhost:3000, recarga al guardar
 
 ## Caducidades
 
-Un cron interno (hora en `EXPIRY_CRON`, por defecto 04:30) y una pasada extra al arrancar:
+Un cron interno (`EXPIRY_CRON`, recomendado cada 30 min para que las demos por horas corten a tiempo) y una pasada extra al arrancar:
 
 1. Cuentas vencidas → `IsDisabled=true` en Emby y estado `expired`.
 2. Cuentas renovadas mientras estaban caducadas → se reactivan.
