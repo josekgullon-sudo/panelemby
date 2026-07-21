@@ -24,6 +24,12 @@ db.exec(
   "UPDATE emby_accounts SET username = username || '#del' || id WHERE status = 'deleted' AND username NOT LIKE '%#del%'"
 );
 
+// El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue
+// exactamente con los valores originales del seed (no pisa cambios manuales).
+db.exec(
+  "UPDATE plans SET name = 'Demo 6 horas', duration_days = 0.25 WHERE name = 'Demo 24 horas' AND duration_days = 1 AND credit_cost = 0"
+);
+
 // Catálogo inicial de planes (solo si la tabla está vacía)
 if (db.prepare('SELECT COUNT(*) AS n FROM plans').get().n === 0) {
   const seed = db.prepare('INSERT INTO plans (name, duration_days, credit_cost, screens) VALUES (?, ?, ?, ?)');
