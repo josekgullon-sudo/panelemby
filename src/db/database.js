@@ -28,7 +28,7 @@ db.exec(
 if (db.prepare('SELECT COUNT(*) AS n FROM plans').get().n === 0) {
   const seed = db.prepare('INSERT INTO plans (name, duration_days, credit_cost, screens) VALUES (?, ?, ?, ?)');
   db.transaction(() => {
-    seed.run('Demo 24 horas', 1, 0, 1);
+    seed.run('Demo 6 horas', 0.25, 0, 1);
     seed.run('Mensual · 1 pantalla', 30, 1, 1);
     seed.run('Mensual · 2 pantallas', 30, 2, 2);
     seed.run('Trimestral · 1 pantalla', 90, 3, 1);
