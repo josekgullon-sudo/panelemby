@@ -76,6 +76,18 @@
               <button class="btn btn-sm">Cambiar contraseña</button>
             </form>
           </details>
+          <details>
+            <summary>Mover</summary>
+            <form method="post" action="/admin/cuentas/<%= a.id %>/mover" class="form-stack">
+              <div class="pop-title">Mover «<%= a.username %>» a:</div>
+              <select name="owner_id" required aria-label="Nuevo reseller">
+                <% owners.forEach(o => { if (o.username !== a.owner) { %>
+                  <option value="<%= o.id %>"><%= o.username %><%= o.role === 'admin' ? ' (admin)' : '' %></option>
+                <% } }) %>
+              </select>
+              <button class="btn btn-primary btn-sm">Mover cuenta</button>
+            </form>
+          </details>
           <form method="post" action="/admin/cuentas/<%= a.id %>/borrar" class="inline"
                 onsubmit="return confirm('¿Borrar <%= a.username %> de Emby definitivamente?')">
             <button class="btn btn-danger btn-sm">Borrar</button>

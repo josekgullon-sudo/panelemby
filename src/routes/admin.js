@@ -245,17 +245,42 @@ router.get('/cuentas', (req, res) => {
   sql += ' ORDER BY a.expires_at';
   const list = db.prepare(sql).all(...params);
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
+  const owners = db
+    .prepare("SELECT id, username, role FROM panel_users WHERE is_active = 1 ORDER BY role, username")
+    .all();
   const newAccount = req.session.newAccount || null;
   delete req.session.newAccount;
   res.render('admin/accounts', {
     list,
     plans,
+    owners,
     q,
     estado,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,
   });
+});
+
+// Mover una cuenta a otro reseller (o al propio admin). Solo cambia la propiedad;
+// no toca créditos ni fechas.
+router.post('/cuentas/:id/mover', (req, res) => {
+  try {
+    const account = db
+      .prepare("SELECT * FROM emby_accounts WHERE id = ? AND status != 'deleted'")
+      .get(req.params.id);
+    if (!account) throw new accounts.BusinessError('Cuenta no encontrada');
+    const target = db
+      .prepare('SELECT * FROM panel_users WHERE id = ? AND is_active = 1')
+      .get(parseInt(req.body.owner_id, 10));
+    if (!target) throw new accounts.BusinessError('Reseller de destino no válido');
+    if (target.id === account.owner_id) throw new accounts.BusinessError('La cuenta ya pertenece a ese reseller');
+    db.prepare('UPDATE emby_accounts SET owner_id = ? WHERE id = ?').run(target.id, account.id);
+    req.setFlash('ok', `${account.username} movida a ${target.username}`);
+    res.redirect('/admin/cuentas');
+  } catch (err) {
+    backWithError(req, res, err, '/admin/cuentas');
+  }
 });
 
 router.post(
