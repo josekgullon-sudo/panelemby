@@ -51,6 +51,22 @@ async function getVirtualFolders() {
   return embyRequest('GET', '/Library/VirtualFolders');
 }
 
+// --- Dispositivos y sesiones ---
+
+async function getDevices() {
+  return embyRequest('GET', '/Devices');
+}
+
+// Elimina el registro del dispositivo: revoca su acceso y tendrá que volver a iniciar sesión.
+async function deleteDevice(deviceId) {
+  return embyRequest('DELETE', `/Devices?Id=${encodeURIComponent(deviceId)}`);
+}
+
+// Sesiones activas ahora mismo en el servidor
+async function getSessions() {
+  return embyRequest('GET', '/Sessions');
+}
+
 // --- Usuarios ---
 
 async function listUsers() {
@@ -101,6 +117,9 @@ module.exports = {
   EmbyError,
   getSystemInfo,
   getVirtualFolders,
+  getDevices,
+  deleteDevice,
+  getSessions,
   listUsers,
   getUser,
   createUser,

@@ -104,6 +104,46 @@ async function restoredPolicyPatch() {
   return { IsDisabled: false, EnableAllFolders: true, EnabledFolders: [] };
 }
 
+// --- Dispositivos de una cuenta ---
+
+// Lista los dispositivos cuyo último usuario es esta cuenta, marcando cuáles
+// están conectados ahora mismo (y qué reproducen).
+async function listDevices(embyUserId) {
+  const [rawDevices, rawSessions] = await Promise.all([
+    emby.getDevices(),
+    emby.getSessions().catch(() => []),
+  ]);
+  const devices = (Array.isArray(rawDevices) ? rawDevices : rawDevices.Items || []).filter(
+    (d) => d.LastUserId === embyUserId
+  );
+  const sessions = Array.isArray(rawSessions) ? rawSessions : rawSessions.Items || [];
+
+  return devices
+    .map((d) => {
+      const session = sessions.find((s) => s.DeviceId === d.Id && s.UserId === embyUserId);
+      return {
+        id: d.Id,
+        name: d.Name || 'Dispositivo',
+        app: [d.AppName, d.AppVersion].filter(Boolean).join(' '),
+        ip: (session && session.RemoteEndPoint) || d.IpAddress || '',
+        lastActivity: d.DateLastActivity ? d.DateLastActivity.slice(0, 16).replace('T', ' ') : '',
+        online: !!session,
+        playing: session && session.NowPlayingItem ? session.NowPlayingItem.Name : null,
+      };
+    })
+    .sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
+}
+
+// Quita un dispositivo de una cuenta (revoca la sesión de ese aparato en Emby).
+// Verifica que el dispositivo pertenece de verdad a esa cuenta.
+async function removeDevice({ account, deviceId }) {
+  const devices = await listDevices(account.emby_user_id);
+  const device = devices.find((d) => d.id === deviceId);
+  if (!device) throw new BusinessError('Ese dispositivo no pertenece a esta cuenta');
+  await emby.deleteDevice(deviceId);
+  return device;
+}
+
 // --- Cuentas de Emby ---
 
 // Alta completa: crea en Emby, guarda en BD y descuenta créditos (si el dueño es reseller).
@@ -247,6 +287,8 @@ module.exports = {
   changePassword,
   markDeleted,
   deleteAccount,
+  listDevices,
+  removeDevice,
   expiredPolicyPatch,
   restoredPolicyPatch,
 };

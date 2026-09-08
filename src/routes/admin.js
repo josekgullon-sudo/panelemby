@@ -262,6 +262,44 @@ router.get('/cuentas', (req, res) => {
   });
 });
 
+// Dispositivos con sesión iniciada en una cuenta
+router.get(
+  '/cuentas/:id/dispositivos',
+  wrap(async (req, res) => {
+    const account = db
+      .prepare("SELECT * FROM emby_accounts WHERE id = ? AND status != 'deleted'")
+      .get(req.params.id);
+    if (!account) {
+      req.setFlash('error', 'Cuenta no encontrada');
+      return res.redirect('/admin/cuentas');
+    }
+    try {
+      const devices = await accounts.listDevices(account.emby_user_id);
+      res.render('devices', { account, devices, base: `/admin/cuentas/${account.id}/dispositivos`, backUrl: '/admin/cuentas' });
+    } catch (err) {
+      backWithError(req, res, err, '/admin/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/dispositivos/borrar',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}/dispositivos`;
+    try {
+      const account = db
+        .prepare("SELECT * FROM emby_accounts WHERE id = ? AND status != 'deleted'")
+        .get(req.params.id);
+      if (!account) throw new accounts.BusinessError('Cuenta no encontrada');
+      const device = await accounts.removeDevice({ account, deviceId: req.body.device_id });
+      req.setFlash('ok', `Dispositivo "${device.name}" quitado: tendrá que iniciar sesión de nuevo`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
 // Mover una cuenta a otro reseller (o al propio admin). Solo cambia la propiedad;
 // no toca créditos ni fechas.
 router.post('/cuentas/:id/mover', (req, res) => {

@@ -1,0 +1,46 @@
+<%- include('partials/header', { title: 'Dispositivos · ' + account.username, nav: 'cuentas' }) %>
+
+<p><a href="<%= backUrl %>">← Volver a cuentas</a></p>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Dispositivos de <%= account.username %> <span class="count"><%= devices.length %></span></h2>
+  </div>
+
+  <% if (devices.length === 0) { %>
+    <p class="empty">Esta cuenta aún no ha iniciado sesión en ningún dispositivo.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Dispositivo</th><th>Aplicación</th><th>Última actividad</th><th>IP</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    <% devices.forEach(d => { %>
+      <tr>
+        <td class="td-strong"><%= d.name %></td>
+        <td class="td-dim"><%= d.app || '—' %></td>
+        <td><%= d.lastActivity || '—' %></td>
+        <td class="td-dim"><%= d.ip || '—' %></td>
+        <td>
+          <% if (d.playing) { %>
+            <span class="badge badge-warn" title="<%= d.playing %>">reproduciendo</span>
+          <% } else if (d.online) { %>
+            <span class="badge badge-ok">conectado ahora</span>
+          <% } else { %>
+            <span class="td-dim">—</span>
+          <% } %>
+        </td>
+        <td>
+          <form method="post" action="<%= base %>/borrar" class="inline"
+                onsubmit="return confirm('¿Quitar el dispositivo <%= d.name %>? Tendrá que iniciar sesión de nuevo en ese aparato.')">
+            <input type="hidden" name="device_id" value="<%= d.id %>">
+            <button class="btn btn-danger btn-sm">Quitar</button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <p class="hint">Al quitar un dispositivo, Emby cierra su sesión y ese aparato tendrá que volver a iniciar sesión con usuario y contraseña. Útil cuando el cliente alcanza su límite de dispositivos.</p>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>

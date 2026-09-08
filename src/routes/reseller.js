@@ -96,6 +96,44 @@ router.post(
   })
 );
 
+// Dispositivos con sesión iniciada en una cuenta (solo cuentas propias)
+router.get(
+  '/cuentas/:id/dispositivos',
+  wrap(async (req, res) => {
+    const account = db
+      .prepare("SELECT * FROM emby_accounts WHERE id = ? AND owner_id = ? AND status != 'deleted'")
+      .get(req.params.id, req.user.id);
+    if (!account) {
+      req.setFlash('error', 'Cuenta no encontrada');
+      return res.redirect('/reseller/cuentas');
+    }
+    try {
+      const devices = await accounts.listDevices(account.emby_user_id);
+      res.render('devices', { account, devices, base: `/reseller/cuentas/${account.id}/dispositivos`, backUrl: '/reseller/cuentas' });
+    } catch (err) {
+      backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/dispositivos/borrar',
+  wrap(async (req, res) => {
+    const back = `/reseller/cuentas/${req.params.id}/dispositivos`;
+    try {
+      const account = db
+        .prepare("SELECT * FROM emby_accounts WHERE id = ? AND owner_id = ? AND status != 'deleted'")
+        .get(req.params.id, req.user.id);
+      if (!account) throw new accounts.BusinessError('Cuenta no encontrada');
+      const device = await accounts.removeDevice({ account, deviceId: req.body.device_id });
+      req.setFlash('ok', `Dispositivo "${device.name}" quitado: tendrá que iniciar sesión de nuevo`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
 router.post(
   '/cuentas/:id/renovar',
   wrap(async (req, res) => {
