@@ -96,6 +96,16 @@ router.post(
   })
 );
 
+// Reenviar datos de conexión (solo cuentas propias)
+router.get('/cuentas/:id/datos', (req, res) => {
+  try {
+    req.session.newAccount = accounts.connectionData(parseInt(req.params.id, 10), req.user);
+    res.redirect('/reseller/cuentas');
+  } catch (err) {
+    backWithError(req, res, err, '/reseller/cuentas');
+  }
+});
+
 // Dispositivos con sesión iniciada en una cuenta (solo cuentas propias)
 router.get(
   '/cuentas/:id/dispositivos',

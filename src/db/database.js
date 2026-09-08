@@ -24,6 +24,12 @@ db.exec(
   "UPDATE emby_accounts SET username = username || '#del' || id WHERE status = 'deleted' AND username NOT LIKE '%#del%'"
 );
 
+// Contraseña cifrada reversible para poder reenviar los datos de conexión
+const accountCols = db.prepare('PRAGMA table_info(emby_accounts)').all();
+if (!accountCols.some((c) => c.name === 'password_enc')) {
+  db.exec('ALTER TABLE emby_accounts ADD COLUMN password_enc TEXT');
+}
+
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue
 // exactamente con los valores originales del seed (no pisa cambios manuales).
 db.exec(

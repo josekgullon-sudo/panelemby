@@ -262,6 +262,16 @@ router.get('/cuentas', (req, res) => {
   });
 });
 
+// Reenviar datos de conexión: rellena el modal en la siguiente carga de la lista
+router.get('/cuentas/:id/datos', (req, res) => {
+  try {
+    req.session.newAccount = accounts.connectionData(parseInt(req.params.id, 10), req.user);
+    res.redirect('/admin/cuentas');
+  } catch (err) {
+    backWithError(req, res, err, '/admin/cuentas');
+  }
+});
+
 // Dispositivos con sesión iniciada en una cuenta
 router.get(
   '/cuentas/:id/dispositivos',

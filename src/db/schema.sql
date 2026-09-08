@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     emby_user_id  TEXT UNIQUE,
     username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
+    password_enc  TEXT,
     owner_id      INTEGER NOT NULL REFERENCES panel_users(id),
     plan_id       INTEGER REFERENCES plans(id),
     expires_at    TEXT NOT NULL,

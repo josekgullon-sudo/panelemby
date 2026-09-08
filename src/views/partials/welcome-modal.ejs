@@ -1,7 +1,7 @@
-<% if (newAccount) { %>
+<% if (newAccount) { const resend = newAccount.mode === 'resend'; %>
 <dialog class="modal" id="welcome-modal" aria-labelledby="welcome-title">
   <div class="modal-head">
-    <h3 id="welcome-title">Cuenta creada</h3>
+    <h3 id="welcome-title"><%= resend ? 'Datos de conexión · ' + newAccount.username : 'Cuenta creada' %></h3>
     <span class="badge badge-ok">lista para enviar</span>
   </div>
   <p class="modal-sub">Copia este mensaje y pégaselo a tu cliente:</p>
@@ -10,12 +10,15 @@
 📺 Servidor: <%= embyPublicUrl %>
 🔌 Puerto: dejar vacío
 👤 Usuario: <%= newAccount.username %>
-🔑 Contraseña: <%= newAccount.password %>
-🖥️ Pantallas: <%= newAccount.screens %>
-📦 Plan: <%= newAccount.plan %>
-📅 Vence: <%= newAccount.expiresAt.slice(0, 10) %>
+🔑 Contraseña: <%= newAccount.password || 'la que ya tienes' %>
+<% if (newAccount.screens) { %>🖥️ Pantallas: <%= newAccount.screens %>
+<% } %><% if (newAccount.plan) { %>📦 Plan: <%= newAccount.plan %>
+<% } %>📅 Vence: <%= newAccount.expiresAt.slice(0, 10) %>
 
 Descarga la app de Emby en tu TV, móvil u ordenador e introduce estos datos. ¡A disfrutar! 🍿</pre>
+  <% if (resend && !newAccount.password) { %>
+    <p class="hint">La contraseña de esta cuenta no está guardada en el panel (es anterior a esta función). Si el cliente la perdió, usa «Contraseña» para ponerle una nueva: a partir de ahí quedará disponible aquí.</p>
+  <% } %>
   <div class="modal-actions">
     <button type="button" class="btn btn-primary" id="copy-welcome">Copiar mensaje</button>
     <form method="dialog"><button class="btn">Cerrar</button></form>

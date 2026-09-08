@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const emby = require('./emby');
+const secret = require('./secret');
 
 class BusinessError extends Error {
   constructor(message) {
@@ -179,10 +180,10 @@ async function createAccount({ username, password, planId, owner, notes }) {
     const insertTx = db.transaction(() => {
       const info = db
         .prepare(
-          `INSERT INTO emby_accounts (emby_user_id, username, password_hash, owner_id, plan_id, expires_at, status, notes)
-           VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`
+          `INSERT INTO emby_accounts (emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`
         )
-        .run(embyUser.Id, username, passwordHash, owner.id, plan.id, expiresAt, notes || null);
+        .run(embyUser.Id, username, passwordHash, secret.encrypt(password), owner.id, plan.id, expiresAt, notes || null);
       if (owner.role === 'reseller') {
         deductCredits(owner.id, plan.credit_cost, 'create_account', info.lastInsertRowid, owner.id);
       }
@@ -246,10 +247,36 @@ async function changePassword({ accountId, newPassword, actor }) {
     throw new BusinessError('La contraseña debe tener al menos 4 caracteres');
   }
   await emby.setPassword(account.emby_user_id, newPassword);
-  db.prepare('UPDATE emby_accounts SET password_hash = ? WHERE id = ?').run(
+  db.prepare('UPDATE emby_accounts SET password_hash = ?, password_enc = ? WHERE id = ?').run(
     bcrypt.hashSync(newPassword, 10),
+    secret.encrypt(newPassword),
     account.id
   );
+}
+
+// Datos de conexión de una cuenta, para reenviárselos a un cliente que los perdió.
+// La contraseña solo se conoce si la cuenta se creó (o se le cambió la contraseña)
+// después de incorporar el cifrado reversible.
+function connectionData(accountId, actor) {
+  const account = db
+    .prepare(
+      `SELECT a.*, p.name AS plan_name, p.screens AS plan_screens
+       FROM emby_accounts a LEFT JOIN plans p ON p.id = a.plan_id
+       WHERE a.id = ? AND a.status != 'deleted'`
+    )
+    .get(accountId);
+  if (!account) throw new BusinessError('Cuenta no encontrada');
+  if (actor.role === 'reseller' && account.owner_id !== actor.id) {
+    throw new BusinessError('Esa cuenta no es tuya');
+  }
+  return {
+    mode: 'resend',
+    username: account.username,
+    password: account.password_enc ? secret.decrypt(account.password_enc) : null,
+    plan: account.plan_name,
+    screens: account.plan_screens,
+    expiresAt: account.expires_at,
+  };
 }
 
 // Marca una cuenta como borrada liberando su nombre de usuario: la fila se
@@ -285,6 +312,7 @@ module.exports = {
   createAccount,
   renewAccount,
   changePassword,
+  connectionData,
   markDeleted,
   deleteAccount,
   listDevices,

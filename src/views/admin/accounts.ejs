@@ -58,6 +58,7 @@
           <% } else { %><span class="badge badge-err">caducada</span><% } %>
         </td>
         <td class="actions">
+          <a class="btn btn-ghost btn-sm" href="/admin/cuentas/<%= a.id %>/datos" title="Ver y copiar los datos de conexión">Datos</a>
           <details>
             <summary>Renovar</summary>
             <form method="post" action="/admin/cuentas/<%= a.id %>/renovar" class="form-stack">
