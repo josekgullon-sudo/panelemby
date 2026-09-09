@@ -182,7 +182,7 @@ code {
 }
 .credit-chip svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 
-.content { padding: 26px 32px 60px; max-width: 1240px; width: 100%; }
+.content { padding: 26px 32px 60px; width: 100%; }
 
 /* ---------- Tarjetas de métricas ---------- */
 

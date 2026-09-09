@@ -37,13 +37,14 @@
     <p class="empty"><%= q || estado ? 'Ninguna cuenta coincide con el filtro.' : 'No hay cuentas todavía. Crea la primera arriba.' %></p>
   <% } else { %>
   <table>
-    <thead><tr><th>Cuenta</th><th>Reseller</th><th>Plan</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <thead><tr><th>Cuenta</th><th>Reseller</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
     <tbody>
     <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
       <tr>
         <td class="td-strong"><%= a.username %><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %></td>
         <td><%= a.owner %></td>
         <td class="td-dim"><%= a.plan || '—' %></td>
+        <td class="td-dim"><%= a.created_at.slice(0, 10) %></td>
         <td><%= a.expires_at.slice(0, 10) %></td>
         <td class="td-meter">
           <% if (a.status === 'active') { %>
