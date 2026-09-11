@@ -254,6 +254,53 @@ async function changePassword({ accountId, newPassword, actor }) {
   );
 }
 
+// Cambia el plan de una cuenta SIN tocar la fecha de caducidad — para corregir
+// errores (1 pantalla en vez de 2, plan equivocado). Aplica las pantallas del
+// nuevo plan en Emby. Los resellers solo pueden cambiar entre planes de la misma
+// duración, cobrando o abonando la diferencia de créditos.
+async function changePlan({ accountId, planId, actor }) {
+  const account = db.prepare("SELECT * FROM emby_accounts WHERE id = ? AND status != 'deleted'").get(accountId);
+  if (!account) throw new BusinessError('Cuenta no encontrada');
+  if (actor.role === 'reseller' && account.owner_id !== actor.id) {
+    throw new BusinessError('Esa cuenta no es tuya');
+  }
+  const newPlan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
+  if (!newPlan) throw new BusinessError('Plan no válido');
+  if (newPlan.id === account.plan_id) throw new BusinessError('La cuenta ya tiene ese plan');
+
+  let diff = 0;
+  if (actor.role === 'reseller') {
+    const oldPlan = account.plan_id ? db.prepare('SELECT * FROM plans WHERE id = ?').get(account.plan_id) : null;
+    if (!oldPlan || oldPlan.duration_days !== newPlan.duration_days) {
+      throw new BusinessError('Solo puedes cambiar entre planes de la misma duración; para ampliar tiempo usa Renovar');
+    }
+    diff = newPlan.credit_cost - oldPlan.credit_cost;
+    if (diff > 0 && actor.credits < diff) {
+      throw new BusinessError(`Créditos insuficientes: el cambio cuesta ${diff} y tienes ${actor.credits}`);
+    }
+  }
+
+  // Emby primero: si falla, no se toca nada en el panel
+  await emby.setStreamLimit(account.emby_user_id, newPlan.screens || 1);
+
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE emby_accounts SET plan_id = ? WHERE id = ?').run(newPlan.id, account.id);
+    if (actor.role === 'reseller' && diff !== 0) {
+      const r = db
+        .prepare('UPDATE panel_users SET credits = credits - ? WHERE id = ? AND (? <= 0 OR credits >= ?)')
+        .run(diff, actor.id, diff, diff);
+      if (r.changes === 0) throw new BusinessError('Créditos insuficientes');
+      const { credits } = db.prepare('SELECT credits FROM panel_users WHERE id = ?').get(actor.id);
+      db.prepare(
+        `INSERT INTO credit_transactions (reseller_id, amount, balance_after, reason, account_id, performed_by)
+         VALUES (?, ?, ?, 'adjustment', ?, ?)`
+      ).run(actor.id, -diff, credits, account.id, actor.id);
+    }
+  });
+  tx();
+  return { newPlan, diff };
+}
+
 // Datos de conexión de una cuenta, para reenviárselos a un cliente que los perdió.
 // La contraseña solo se conoce si la cuenta se creó (o se le cambió la contraseña)
 // después de incorporar el cifrado reversible.
@@ -312,6 +359,7 @@ module.exports = {
   createAccount,
   renewAccount,
   changePassword,
+  changePlan,
   connectionData,
   markDeleted,
   deleteAccount,

@@ -262,6 +262,24 @@ router.get('/cuentas', (req, res) => {
   });
 });
 
+// Cambiar el plan de una cuenta sin tocar su fecha (corregir pantallas/plan)
+router.post(
+  '/cuentas/:id/plan',
+  wrap(async (req, res) => {
+    try {
+      const { newPlan } = await accounts.changePlan({
+        accountId: parseInt(req.params.id, 10),
+        planId: parseInt(req.body.plan_id, 10),
+        actor: req.user,
+      });
+      req.setFlash('ok', `Plan cambiado a ${newPlan.name} (la fecha de caducidad no cambia)`);
+      res.redirect('/admin/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/admin/cuentas');
+    }
+  })
+);
+
 // Reenviar datos de conexión: rellena el modal en la siguiente carga de la lista
 router.get('/cuentas/:id/datos', (req, res) => {
   try {

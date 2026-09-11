@@ -49,11 +49,12 @@
         <td class="td-meter">
           <% if (a.status === 'active') { %>
             <%- include('../partials/meter', { days: d, duration: a.duration_days }) %>
-            <span class="meter-days"><%= d <= 0 ? 'hoy' : d + ' d' %></span>
+            <span class="meter-days"><%= d < 0 ? 'hace ' + (-d) + ' d' : d === 0 ? 'hoy' : d + ' d' %></span>
           <% } else { %><span class="td-dim">—</span><% } %>
         </td>
         <td>
-          <% if (a.status === 'active' && d <= 0) { %><span class="badge badge-warn">vence hoy</span>
+          <% if (a.status === 'active' && d < 0) { %><span class="badge badge-err">venció hace <%= -d %> d</span>
+          <% } else if (a.status === 'active' && d === 0) { %><span class="badge badge-warn">vence hoy</span>
           <% } else if (a.status === 'active' && d <= 7) { %><span class="badge badge-warn">caduca pronto</span>
           <% } else if (a.status === 'active') { %><span class="badge badge-ok">activa</span>
           <% } else { %><span class="badge badge-err">caducada</span><% } %>
@@ -65,10 +66,23 @@
             <form method="post" action="/admin/cuentas/<%= a.id %>/renovar" class="form-stack">
               <select name="plan_id" required aria-label="Plan de renovación">
                 <% plans.forEach(p => { %>
-                  <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+                  <option value="<%= p.id %>" <%= p.id === a.plan_id ? 'selected' : '' %>><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
                 <% }) %>
               </select>
               <button class="btn btn-primary btn-sm">Renovar cuenta</button>
+            </form>
+          </details>
+          <details>
+            <summary>Plan</summary>
+            <form method="post" action="/admin/cuentas/<%= a.id %>/plan" class="form-stack">
+              <div class="pop-title">Cambiar plan de «<%= a.username %>»</div>
+              <select name="plan_id" required aria-label="Nuevo plan">
+                <% plans.forEach(p => { if (p.id !== a.plan_id) { %>
+                  <option value="<%= p.id %>"><%= p.name %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.</option>
+                <% } }) %>
+              </select>
+              <p class="hint">No cambia la fecha de caducidad; aplica las pantallas del plan en Emby.</p>
+              <button class="btn btn-primary btn-sm">Cambiar plan</button>
             </form>
           </details>
           <details>

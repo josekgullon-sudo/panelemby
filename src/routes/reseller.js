@@ -96,6 +96,39 @@ router.post(
   })
 );
 
+// Cambiar el plan de una cuenta sin tocar su fecha (misma duración; cobra/abona diferencia)
+router.post(
+  '/cuentas/:id/plan',
+  wrap(async (req, res) => {
+    try {
+      const { newPlan, diff } = await accounts.changePlan({
+        accountId: parseInt(req.params.id, 10),
+        planId: parseInt(req.body.plan_id, 10),
+        actor: req.user,
+      });
+      const extra = diff > 0 ? ` (−${diff} créditos)` : diff < 0 ? ` (+${-diff} créditos devueltos)` : '';
+      req.setFlash('ok', `Plan cambiado a ${newPlan.name}${extra}`);
+      res.redirect('/reseller/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
+// Borrar una cuenta propia: la elimina de Emby y la deja como historial en el panel
+router.post(
+  '/cuentas/:id/borrar',
+  wrap(async (req, res) => {
+    try {
+      await accounts.deleteAccount({ accountId: parseInt(req.params.id, 10), actor: req.user });
+      req.setFlash('ok', 'Cuenta borrada de Emby');
+      res.redirect('/reseller/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
 // Reenviar datos de conexión (solo cuentas propias)
 router.get('/cuentas/:id/datos', (req, res) => {
   try {
