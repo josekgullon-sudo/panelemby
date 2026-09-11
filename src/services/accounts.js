@@ -91,7 +91,8 @@ async function showcaseLibraryId() {
       `No existe en Emby ninguna biblioteca llamada "${config.expiryLibrary}" (revisa EXPIRY_LIBRARY en el .env)`
     );
   }
-  showcaseLibraryIdCache = lib.ItemId || lib.Id;
+  // Emby filtra las vistas por el Guid de la biblioteca, no por el ItemId numérico.
+  showcaseLibraryIdCache = lib.Guid || lib.ItemId || lib.Id;
   return showcaseLibraryIdCache;
 }
 
@@ -106,7 +107,7 @@ async function activeLibrariesPatch() {
   if (config.expiryMode !== 'vitrina') return {};
   const raw = await emby.getVirtualFolders();
   const libs = Array.isArray(raw) ? raw : raw.Items || [];
-  const ids = libs.filter((l) => l.Name !== config.expiryLibrary).map((l) => l.ItemId || l.Id);
+  const ids = libs.filter((l) => l.Name !== config.expiryLibrary).map((l) => l.Guid || l.ItemId || l.Id);
   return { EnableAllFolders: false, EnabledFolders: ids };
 }
 
