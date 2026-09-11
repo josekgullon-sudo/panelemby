@@ -100,9 +100,19 @@ async function expiredPolicyPatch() {
   return { EnableAllFolders: false, EnabledFolders: [await showcaseLibraryId()] };
 }
 
+// En modo vitrina, los clientes activos ven todas las bibliotecas EXCEPTO el
+// cartel de caducados (si no, les saldría "CUENTA CADUCADA" estando al día).
+async function activeLibrariesPatch() {
+  if (config.expiryMode !== 'vitrina') return {};
+  const raw = await emby.getVirtualFolders();
+  const libs = Array.isArray(raw) ? raw : raw.Items || [];
+  const ids = libs.filter((l) => l.Name !== config.expiryLibrary).map((l) => l.ItemId || l.Id);
+  return { EnableAllFolders: false, EnabledFolders: ids };
+}
+
 async function restoredPolicyPatch() {
   if (config.expiryMode !== 'vitrina') return { IsDisabled: false };
-  return { IsDisabled: false, EnableAllFolders: true, EnabledFolders: [] };
+  return { IsDisabled: false, ...(await activeLibrariesPatch()) };
 }
 
 // --- Dispositivos de una cuenta ---
@@ -164,10 +174,12 @@ async function createAccount({ username, password, planId, owner, notes }) {
     throw new BusinessError(`Créditos insuficientes: el plan cuesta ${plan.credit_cost} y tienes ${owner.credits}`);
   }
 
-  // 1) Emby primero (es lo que puede fallar por red)
+  // 1) Emby primero (es lo que puede fallar por red): pantallas del plan y,
+  // en modo vitrina, acceso a todas las bibliotecas menos el cartel
   const embyUser = await emby.createUser(username, password);
   try {
-    await emby.setStreamLimit(embyUser.Id, plan.screens || 1);
+    const patch = { SimultaneousStreamLimit: plan.screens || 1, ...(await activeLibrariesPatch()) };
+    await emby.updatePolicy(embyUser.Id, patch);
   } catch (err) {
     await emby.deleteUser(embyUser.Id).catch(() => {});
     throw err;
@@ -363,6 +375,7 @@ module.exports = {
   connectionData,
   markDeleted,
   deleteAccount,
+  activeLibrariesPatch,
   listDevices,
   removeDevice,
   expiredPolicyPatch,

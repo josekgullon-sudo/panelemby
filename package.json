@@ -10,6 +10,7 @@
     "create-admin": "node scripts/create-admin.js",
     "expiry": "node scripts/run-expiry.js",
     "import-emby": "node scripts/import-emby.js",
+    "sync-bibliotecas": "node scripts/sync-libraries.js",
     "test-emby": "node scripts/test-emby.js"
   },
   "engines": {
