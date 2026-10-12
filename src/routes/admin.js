@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const accounts = require('../services/accounts');
+const { syncXuiLines } = require('../services/xuiSync');
 const { requirePanelRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -279,6 +280,11 @@ router.get(
     sql += ' AND a.status = ?';
     params.push(estado);
   }
+  const filters = accounts.accountListFilters(req.query);
+  if (filters.clauses.length) {
+    sql += ` AND ${filters.clauses.join(' AND ')}`;
+    params.push(...filters.params);
+  }
   sql += ' ORDER BY a.expires_at';
   const list = db.prepare(sql).all(...params);
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
@@ -294,6 +300,8 @@ router.get(
     owners,
     q,
     estado,
+    servicio: filters.servicio,
+    dominio: filters.dominio,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,
@@ -401,13 +409,15 @@ router.post(
   '/cuentas',
   wrap(async (req, res) => {
     try {
+      const services = accounts.parseServices(req.body);
+      const planId = services.emby ? parseInt(req.body.plan_id, 10) : parseInt(req.body.xui_plan_id, 10);
       const created = await accounts.createAccount({
         username: req.body.username,
         password: req.body.password,
-        planId: parseInt(req.body.plan_id, 10),
+        planId,
         owner: req.user,
         notes: req.body.notes,
-        services: accounts.parseServices(req.body),
+        services,
       });
       const card = accounts.connectionCard(created.id, req.user);
       card.mode = 'created';
@@ -486,5 +496,121 @@ router.post(
     }
   })
 );
+
+router.get(
+  '/cuentas/:id',
+  wrap(async (req, res) => {
+    try {
+      const payload = await accounts.detailPayload(parseInt(req.params.id, 10), req.user);
+      const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
+      const form = await accounts.packagesForForm();
+      const newAccount = req.session.newAccount || null;
+      delete req.session.newAccount;
+      res.render('account-detail', Object.assign(payload, {
+        plans,
+        packages: form.packages,
+        maxplayerConfigured: form.maxplayerConfigured,
+        base: '/admin/cuentas',
+        listUrl: '/admin/cuentas',
+        newAccount,
+      }));
+    } catch (err) {
+      backWithError(req, res, err, '/admin/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/sincronizar-xui',
+  wrap(async (req, res) => {
+    try {
+      const summary = await syncXuiLines();
+      const extra = summary.indexError ? ` Aviso Max Player: ${summary.indexError}` : '';
+      req.setFlash(
+        'ok',
+        `XUI sincronizado: ${summary.created} nuevas, ${summary.updated} actualizadas, ${summary.maxplayer} Max Player, ${summary.totalflix} TotalFlix, ${summary.conflicts} conflictos.${extra}`
+      );
+      res.redirect('/admin/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/admin/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/reparar',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.repairMaxPlayer({ accountId: parseInt(req.params.id, 10), actor: req.user });
+      req.setFlash('ok', `Max Player de ${result.username} reparado: dispositivos cerrados y servidor cambiado de ${result.fromLabel} a ${result.toLabel}.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/ampliar',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.extendService({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+        service: req.body.service,
+        planId: parseInt(req.body.plan_id, 10),
+      });
+      req.setFlash('ok', `${result.service === 'emby' ? 'Emby' : 'XUI'} ampliado hasta ${String(result.expiresAt).slice(0, 16)}.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/servicio',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.addService({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+        service: req.body.service,
+        planId: parseInt(req.body.plan_id, 10),
+        packageId: req.body.xui_package_id,
+        playerKind: req.body.player_kind,
+      });
+      const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
+      card.mode = 'created';
+      req.session.newAccount = card;
+      if (result.provisionError) req.setFlash('error', result.provisionError);
+      else req.setFlash('ok', 'Servicio añadido');
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post('/resellers/:id/xui', (req, res) => {
+  try {
+    const member = String(req.body.xui_member_id || '').trim();
+    const id = parseInt(req.params.id, 10);
+    if (member && db.prepare('SELECT id FROM panel_users WHERE xui_member_id = ? AND id != ?').get(member, id)) {
+      throw new accounts.BusinessError('Ese member_id ya está asignado a otro reseller');
+    }
+    const updated = db
+      .prepare("UPDATE panel_users SET xui_member_id = ? WHERE id = ? AND role = 'reseller'")
+      .run(member || null, id);
+    if (updated.changes === 0) throw new accounts.BusinessError('Reseller no encontrado');
+    req.setFlash('ok', member ? 'member_id de XUI guardado' : 'member_id de XUI quitado');
+    res.redirect('/admin/resellers');
+  } catch (err) {
+    backWithError(req, res, err, '/admin/resellers');
+  }
+});
 
 module.exports = router;

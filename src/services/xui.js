@@ -51,6 +51,79 @@ function tlsRejectUnauthorized() {
   return !config.xuiInsecureTls;
 }
 
+// XUI rechaza el unix (STATUS_INVALID_DATE). Quiere 'YYYY-MM-DD HH:mm'
+// en hora de Europa/Madrid. El reloj del servidor es UTC: no uses toISOString.
+function formatMadridDateTime(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const pick = (type) => {
+    const part = parts.find((item) => item.type === type);
+    return part ? part.value : '';
+  };
+  const hour = pick('hour') === '24' ? '00' : pick('hour');
+  return `${pick('year')}-${pick('month')}-${pick('day')} ${hour}:${pick('minute')}`;
+}
+
+function wallMinutes(text) {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(text);
+  if (!match) return null;
+  return Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]) / 60000;
+}
+
+// 'YYYY-MM-DD HH:mm[:ss]' leído de XUI: es hora de Madrid, no UTC.
+function madridWallToDate(text) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(text || '').trim());
+  if (!match) return null;
+  const target = `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}`;
+  const targetMin = wallMinutes(target);
+  let utc = Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5], +(match[6] || 0));
+  for (let i = 0; i < 4; i += 1) {
+    const shownMin = wallMinutes(formatMadridDateTime(new Date(utc)));
+    if (shownMin == null || targetMin == null) return null;
+    const delta = targetMin - shownMin;
+    if (delta === 0) return new Date(utc);
+    utc += delta * 60000;
+  }
+  return new Date(utc);
+}
+
+function formatExpDate(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new XuiError('Fecha de caducidad XUI no válida');
+    return formatMadridDateTime(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return formatMadridDateTime(new Date(value < 1e12 ? value * 1000 : value));
+  }
+  const text = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text)) return text;
+  if (/^\d{10,13}$/.test(text)) return formatExpDate(Number(text));
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(text)) {
+    const iso = text.replace(' ', 'T');
+    const date = new Date(iso.endsWith('Z') ? iso : `${iso}Z`);
+    if (Number.isNaN(date.getTime())) throw new XuiError('Fecha de caducidad XUI no válida');
+    return formatMadridDateTime(date);
+  }
+  throw new XuiError(`Fecha de caducidad XUI no válida (${text.slice(0, 40)})`);
+}
+
+function parseExpToDate(value) {
+  if (value == null || value === '' || value === 0 || value === '0') return null;
+  if (typeof value === 'number' || /^\d{10,13}$/.test(String(value).trim())) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return new Date(n < 1e12 ? n * 1000 : n);
+  }
+  return madridWallToDate(value);
+}
+
 function defaultTransport(url) {
   return new Promise((resolve, reject) => {
     const lib = url.protocol === 'http:' ? http : https;
@@ -205,10 +278,12 @@ async function getLine(id) {
 }
 
 async function createLine({ username, password, expDate, maxConnections, packageId, isTrial, bouquets, memberId }) {
+  // `package` se envía igual, pero este XUI lo ignora: la línea vuelve sin
+  // paquete. El id que vale es el que guardamos en emby_accounts.xui_package_id.
   const params = {
     username,
     password,
-    exp_date: expDate,
+    exp_date: formatExpDate(expDate),
     max_connections: maxConnections,
     package: packageId,
     is_trial: isTrial ? 1 : 0,
@@ -224,7 +299,55 @@ async function createLine({ username, password, expDate, maxConnections, package
 }
 
 async function editLine(id, fields) {
-  return request('edit_line', Object.assign({ id }, fields));
+  const params = Object.assign({ id }, fields);
+  if (params.exp_date != null && params.exp_date !== '') params.exp_date = formatExpDate(params.exp_date);
+  return request('edit_line', params);
+}
+
+function lineList(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.data)) return data.data;
+  if (data && Array.isArray(data.lines)) return data.lines;
+  if (data && Array.isArray(data.rows)) return data.rows;
+  return [];
+}
+
+function normalizeLine(raw) {
+  const packageId = raw.package == null || raw.package === '' || raw.package === 0 || raw.package === '0'
+    ? ''
+    : String(raw.package);
+  return {
+    id: String(raw.id ?? raw.line_id ?? ''),
+    username: String(raw.username || '').trim(),
+    password: raw.password == null ? '' : String(raw.password),
+    exp_date: raw.exp_date ?? raw.expdate ?? null,
+    member_id: raw.member_id == null || raw.member_id === '' ? '' : String(raw.member_id),
+    max_connections: asInt(raw.max_connections),
+    enabled: raw.enabled === undefined ? true : truthy(raw.enabled),
+    is_trial: truthy(raw.is_trial),
+    bouquets: normalizeBouquets(raw.bouquets_selected ?? raw.bouquet ?? raw.bouquets),
+    // Informativo. No sustituye al paquete guardado en el panel.
+    package_id: packageId,
+  };
+}
+
+// get_lines puede devolver el listado entero o un sobre con total.
+// Si declara un total mayor que la página, se pide el resto con start/limit.
+async function getLines() {
+  const first = await request('get_lines');
+  const page = lineList(first).map(normalizeLine).filter((line) => line.id && line.username);
+  const total = first && !Array.isArray(first) ? asInt(first.total ?? first.recordsTotal ?? first.count) : null;
+  if (!total || page.length >= total) return page;
+  const all = page.slice();
+  let start = page.length;
+  while (all.length < total && start < 200000) {
+    const next = await request('get_lines', { start, limit: 500 });
+    const chunk = lineList(next).map(normalizeLine).filter((line) => line.id && line.username);
+    if (!chunk.length) break;
+    all.push(...chunk);
+    start += chunk.length;
+  }
+  return all;
 }
 
 async function deleteLine(id) {
@@ -248,8 +371,11 @@ module.exports = {
   isConfigured,
   buildUrl,
   tlsRejectUnauthorized,
+  formatExpDate,
+  parseExpToDate,
   getPackages,
   getLine,
+  getLines,
   createLine,
   editLine,
   deleteLine,

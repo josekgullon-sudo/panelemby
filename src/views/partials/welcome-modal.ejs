@@ -14,7 +14,7 @@
     <p class="hint hint-warn"><%= newAccount.provisionError %></p>
   <% } %>
   <div class="modal-actions">
-    <button type="button" class="btn btn-primary" id="copy-welcome">Copiar mensaje</button>
+    <button type="button" class="btn btn-primary" id="copy-welcome">Copiar</button>
     <form method="dialog"><button class="btn">Cerrar</button></form>
   </div>
 </dialog>
@@ -25,7 +25,7 @@
   var b = document.getElementById('copy-welcome');
   function done() {
     b.textContent = '¡Copiado!';
-    setTimeout(function () { b.textContent = 'Copiar mensaje'; }, 1800);
+    setTimeout(function () { b.textContent = 'Copiar'; }, 1800);
   }
   b.addEventListener('click', function () {
     var t = document.getElementById('welcome-text').innerText;

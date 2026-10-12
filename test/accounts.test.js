@@ -144,6 +144,24 @@ test('solo Emby no llama a XUI y cobra el coste de siempre', async () => {
   assert.equal(row.emby_user_id, 'e-solo.emby');
   assert.equal(row.xui_line_id, null);
   assert.equal(row.player_kind, null);
+  const card = accounts.connectionCard(created.id, actor());
+  const vence = String(row.emby_expires_at).slice(0, 10);
+  assert.equal(
+    card.message,
+    [
+      '🎬 ¡Bienvenido a Totalflix!',
+      '',
+      '📺 Emby',
+      'Servidor: http://emby.example',
+      'Puerto: dejar vacío',
+      'Usuario: solo.emby',
+      'Contraseña: clave',
+      'Pantallas: 1',
+      '',
+      '📦 Plan: Plan test',
+      `📅 Vence: ${vence}`,
+    ].join('\n')
+  );
 });
 
 test('TotalFlix crea la línea y no llama a Max Player', async () => {
@@ -163,7 +181,9 @@ test('TotalFlix crea la línea y no llama a Max Player', async () => {
   assert.equal(row.player_kind, 'totalflix');
   assert.equal(row.has_emby, 0);
   const card = accounts.connectionCard(created.id, actor());
-  assert.match(card.message, /TotalFlix/);
+  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+  assert.equal(card.message.includes('m3u'), false);
   assert.match(card.m3u, /iptv\.test:8080/);
   assert.match(card.m3u, /username=solo\.xui/);
 });
@@ -369,4 +389,61 @@ test('cambiar de plan con la misma duración cobra solo la diferencia de los ser
   assert.equal(creditsOf(reseller.id), beforeCredits - 6);
   const row = db.prepare('SELECT plan_id, expires_at FROM emby_accounts WHERE id = ?').get(created.id);
   assert.equal(row.plan_id, planB.id);
+});
+
+test('el texto para copiar junta Emby y XUI sin la M3U', async () => {
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  const created = await accounts.createAccount({
+    username: 'copia.ambos',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: true, xui: true, playerKind: 'maxplayer', packageId: '7' },
+  });
+  const card = accounts.connectionCard(created.id, actor());
+  assert.match(card.message, /🎬 ¡Bienvenido a Totalflix!/);
+  assert.match(card.message, /📺 Emby/);
+  assert.match(card.message, /Servidor: http:\/\/emby\.example/);
+  assert.match(card.message, /Puerto: dejar vacío/);
+  assert.match(card.message, /Pantallas:/);
+  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2}\n/);
+  assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+  assert.equal(/Lista M3U/.test(card.message), false);
+});
+
+test('ampliar XUI no mueve la fecha de Emby y reparar cambia de servidor', async () => {
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  const calls = install({
+    maxplayer: {
+      deleteAllDevices: async (id) => calls.push(['mp.wipe', id]),
+      attachPlaylist: async (id, body) => calls.push(['mp.list', id, body.domainId]),
+    },
+  });
+  const created = await accounts.createAccount({
+    username: 'ampliar.uno',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: true, xui: true, playerKind: 'maxplayer', packageId: '7' },
+  });
+  const before = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  const pato = require('../src/config').maxplayerDomainPatoId;
+  db.prepare('UPDATE emby_accounts SET maxplayer_domain_id = ? WHERE id = ?').run(pato, created.id);
+  calls.length = 0;
+  const credits = creditsOf(reseller.id);
+  await accounts.extendService({ accountId: created.id, actor: actor(), service: 'xui', planId: plan.id });
+  const after = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(after.emby_expires_at, before.emby_expires_at);
+  assert.notEqual(after.xui_expires_at, before.xui_expires_at);
+  assert.ok(calls.some((c) => c[0] === 'xui.edit'));
+  assert.equal(calls.some((c) => c[0] === 'emby.policy'), false);
+  assert.ok(creditsOf(reseller.id) < credits);
+
+  calls.length = 0;
+  const repaired = await accounts.repairMaxPlayer({ accountId: created.id, actor: actor() });
+  assert.equal(repaired.toLabel, 'CISNE');
+  assert.ok(calls.some((c) => c[0] === 'mp.wipe'));
+  const row = db.prepare('SELECT maxplayer_domain_id FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.maxplayer_domain_id, require('../src/config').maxplayerDomainCisneId);
 });

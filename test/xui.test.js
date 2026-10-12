@@ -78,7 +78,11 @@ test('create_line manda paquete, caducidad, bouquets y member_id', async () => {
   assert.equal(q.get('action'), 'create_line');
   assert.equal(q.get('username'), 'ana');
   assert.equal(q.get('package'), '4');
-  assert.equal(q.get('exp_date'), '1700000000');
+  assert.match(q.get('exp_date'), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(q.get('exp_date'), xui.formatExpDate(1700000000));
+  assert.equal(xui.formatExpDate(new Date('2026-01-15T23:30:00.000Z')), '2026-01-16 00:30');
+  assert.equal(xui.formatExpDate(new Date('2026-07-15T22:30:00.000Z')), '2026-07-16 00:30');
+  assert.equal(xui.formatExpDate('2026-03-01 10:15'), '2026-03-01 10:15');
   assert.equal(q.get('max_connections'), '2');
   assert.equal(q.get('bouquets_selected'), '["1","2"]');
   assert.equal(q.get('member_id'), '3');

@@ -1,9 +1,10 @@
 <span class="svc-badges">
   <% if (a.emby_user_id) { %><span class="badge svc-emby">Emby</span><% } %>
   <% if (a.has_emby && !a.emby_user_id) { %><span class="badge badge-warn">Emby pendiente</span><% } %>
-  <% if (a.xui_line_id && a.player_kind === 'maxplayer') { %><span class="badge svc-xui">XUI</span><% } %>
-  <% if (a.xui_line_id && a.player_kind !== 'maxplayer') { %><span class="badge svc-xui">TotalFlix</span><% } %>
+  <% if (a.xui_line_id) { %><span class="badge svc-xui">XUI</span><% } %>
   <% if (a.player_kind && !a.xui_line_id) { %><span class="badge badge-warn">XUI pendiente</span><% } %>
+  <% if (a.player_kind === 'totalflix') { %><span class="badge svc-flix">TotalFlix</span><% } %>
   <% if (a.maxplayer_user_id) { %><span class="badge svc-max">Max Player</span><% } %>
   <% if (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) { %><span class="badge badge-warn">Max Player pendiente</span><% } %>
+  <% if (a.maxplayer_domain_id) { %><span class="badge svc-domain"><%= domainLabel(a.maxplayer_domain_id) %></span><% } %>
 </span>

@@ -7,16 +7,6 @@
     <div class="form-row">
       <input type="text" name="username" placeholder="usuario" required aria-label="Usuario" autocomplete="off">
       <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña" autocomplete="new-password">
-      <select name="plan_id" id="plan-id" required aria-label="Plan">
-        <% plans.forEach(p => { %>
-          <option value="<%= p.id %>"
-            data-emby="<%= p.credit_cost %>"
-            data-xui="<%= p.xui_credit_cost || 0 %>"
-            data-max="<%= p.maxplayer_credit_cost || 0 %>">
-            <%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant.
-          </option>
-        <% }) %>
-      </select>
       <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
     </div>
 
@@ -45,8 +35,27 @@
 
       <% if (xuiNotice) { %><p class="hint hint-warn"><%= xuiNotice %></p><% } %>
 
-      <div class="xui-extra">
-        <p class="svc-kicker">Cómo lo verá el cliente</p>
+      <div class="svc-panel emby-extra">
+        <p class="svc-kicker">Emby</p>
+        <div class="field">
+          <label for="plan-id">Plan y duración</label>
+          <select name="plan_id" id="plan-id" aria-label="Plan Emby">
+            <% plans.forEach(p => { %>
+              <option value="<%= p.id %>"
+                data-days="<%= p.duration_days %>"
+                data-emby="<%= p.credit_cost %>"
+                data-xui="<%= p.xui_credit_cost || 0 %>"
+                data-max="<%= p.maxplayer_credit_cost || 0 %>">
+                <%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.
+              </option>
+            <% }) %>
+          </select>
+        </div>
+        <p class="expiry-preview" id="emby-expiry" aria-live="polite"></p>
+      </div>
+
+      <div class="svc-panel xui-extra">
+        <p class="svc-kicker">XUI</p>
         <div class="segment" role="radiogroup" aria-label="Tipo de línea XUI">
           <label class="segment-opt">
             <input type="radio" name="player_kind" value="totalflix" checked>
@@ -64,7 +73,21 @@
           </label>
         </div>
 
-        <div class="field xui-package">
+        <div class="field">
+          <label for="xui-plan">Duración de la línea</label>
+          <select name="xui_plan_id" id="xui-plan" aria-label="Duración XUI">
+            <% plans.forEach(p => { %>
+              <option value="<%= p.id %>"
+                data-days="<%= p.duration_days %>"
+                data-xui="<%= p.xui_credit_cost || 0 %>"
+                data-max="<%= p.maxplayer_credit_cost || 0 %>">
+                <%= p.name %> · <%= formatDuration(p.duration_days) %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="field">
           <label for="xui-package">Paquete XUI</label>
           <select id="xui-package" name="xui_package_id" aria-label="Paquete XUI">
             <% if (packages.length === 0) { %>
@@ -76,8 +99,9 @@
               </option>
             <% }) %>
           </select>
-          <p class="hint">La fecha la marca el plan. El paquete pone los canales y las conexiones. Si el paquete no tiene precio propio, se usa el coste XUI del plan.</p>
+          <p class="hint">El paquete pone los canales y las conexiones. XUI no guarda el id del paquete: lo recordamos nosotros. Si el paquete no tiene precio, se usa el coste XUI de la duración elegida.</p>
         </div>
+        <p class="expiry-preview" id="xui-expiry" aria-live="polite"></p>
       </div>
     </div>
 
@@ -95,33 +119,45 @@
   var emby = document.getElementById('service-emby');
   var xui = document.getElementById('service-xui');
   var plan = document.getElementById('plan-id');
+  var xuiPlan = document.getElementById('xui-plan');
   var pack = document.getElementById('xui-package');
   var line = document.getElementById('cost-line');
   function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
-  function selectedPlan() { return plan.options[plan.selectedIndex]; }
+  function opt(select) { return select && select.options[select.selectedIndex]; }
   function player() {
     var picked = form.querySelector('input[name="player_kind"]:checked');
     return picked ? picked.value : 'totalflix';
   }
+  function when(days) {
+    var ms = Date.now() + Number(days) * 24 * 3600 * 1000;
+    return new Intl.DateTimeFormat('es-ES', {
+      timeZone: 'Europe/Madrid',
+      dateStyle: 'full',
+      timeStyle: 'short'
+    }).format(new Date(ms));
+  }
   function paint() {
-    var p = selectedPlan();
     var parts = [];
     var total = 0;
-    if (emby.checked) {
-      var e = num(p.getAttribute('data-emby'));
+    var embyOpt = opt(plan);
+    var xuiOpt = opt(xuiPlan);
+    if (emby.checked && embyOpt) {
+      var e = num(embyOpt.getAttribute('data-emby'));
       total += e;
       parts.push('Emby ' + e);
+      document.getElementById('emby-expiry').textContent = 'Caduca el ' + when(embyOpt.getAttribute('data-days'));
     }
-    if (xui.checked) {
+    if (xui.checked && xuiOpt) {
       var custom = pack && pack.selectedOptions[0] ? pack.selectedOptions[0].getAttribute('data-cost') : '';
-      var x = custom === '' || custom == null ? num(p.getAttribute('data-xui')) : num(custom);
+      var x = custom === '' || custom == null ? num(xuiOpt.getAttribute('data-xui')) : num(custom);
       total += x;
       parts.push('XUI ' + x);
       if (player() === 'maxplayer') {
-        var m = num(p.getAttribute('data-max'));
+        var m = num(xuiOpt.getAttribute('data-max'));
         total += m;
         parts.push('Max Player ' + m);
       }
+      document.getElementById('xui-expiry').textContent = 'Caduca el ' + when(xuiOpt.getAttribute('data-days'));
     }
     var who = total === 1 ? 'crédito' : 'créditos';
     line.textContent = parts.length
@@ -130,7 +166,7 @@
   }
   form.addEventListener('change', paint);
   form.addEventListener('submit', function (ev) {
-    if (!emby.checked && !xui.checked) {
+    if (!emby.checked && !(xui && xui.checked)) {
       ev.preventDefault();
       line.textContent = 'Activa Emby, XUI o los dos.';
     }
