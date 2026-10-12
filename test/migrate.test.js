@@ -63,6 +63,9 @@ test('la migración añade ids externos y costes sin perder la cuenta vieja', ()
     'maxplayer_user_id',
     'maxplayer_list_ok',
     'provision_error',
+    'maxplayer_domain_id',
+    'emby_expires_at',
+    'xui_expires_at',
   ]) {
     assert.ok(accountCols.includes(name), name);
   }

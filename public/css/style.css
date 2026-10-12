@@ -702,7 +702,8 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .svc-picker:has(#service-emby:checked) label[for="service-emby"] .knob,
 .svc-picker:has(#service-xui:checked) label[for="service-xui"] .knob { transform: translateX(20px); }
 
-.create-services .xui-extra { display: none; }
+.create-services .svc-panel { display: none; }
+.create-services:has(#service-emby:checked) .emby-extra,
 .create-services:has(#service-xui:checked) .xui-extra {
   display: flex;
   flex-direction: column;
@@ -741,6 +742,16 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .hint-warn { color: var(--amber); }
 
 .svc-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.svc-flix { background: rgba(232, 184, 69, 0.16); color: var(--amber); }
+.svc-domain { background: #243044; color: #9ec1ff; }
+.btn .icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.expiry-preview { margin: 0; color: var(--green); font-weight: 600; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 18px; margin: 0; }
+.detail-grid div { display: flex; flex-direction: column; gap: 2px; }
+.detail-grid dt { color: var(--text-faint); font-size: 12px; }
+.detail-grid dd { margin: 0; }
+.split-actions { display: flex; flex-wrap: wrap; gap: 18px; }
+.split-actions form { flex: 1; min-width: 240px; }
 .badge.svc-emby { background: rgba(82, 168, 255, 0.16); color: #8ec5ff; }
 .badge.svc-xui { background: var(--amber-glow); color: var(--amber); }
 .badge.svc-max { background: rgba(176, 132, 255, 0.18); color: #d2b8ff; }

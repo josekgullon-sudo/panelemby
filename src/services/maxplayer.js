@@ -38,8 +38,16 @@ function assertReadyToProvision() {
   }
 }
 
-async function mpRequest(method, apiPath, body) {
+const RETRY_DELAYS_MS = [400, 1200, 3000];
+let waitForRetry = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function setRetryWait(fn) {
+  waitForRetry = typeof fn === 'function' ? fn : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function mpRequest(method, apiPath, body, options = {}) {
   assertConfigured();
+  const attempt = options.attempt || 0;
   const url = `${config.maxplayerApiUrl}${apiPath}`;
   let res;
   try {
@@ -67,6 +75,13 @@ async function mpRequest(method, apiPath, body) {
     }
   }
 
+  // El panel real responde 503 "Could not verify public API allowance. Please retry."
+  // Un 503 con applied=true ya guardó el cambio: no se repite.
+  if (res.status === 503 && !(payload && payload.applied === true) && attempt < RETRY_DELAYS_MS.length) {
+    await waitForRetry(RETRY_DELAYS_MS[attempt]);
+    return mpRequest(method, apiPath, body, Object.assign({}, options, { attempt: attempt + 1 }));
+  }
+
   if (res.status === 429) {
     const retry = res.headers.get('retry-after');
     throw new MaxPlayerError(
@@ -81,6 +96,7 @@ async function mpRequest(method, apiPath, body) {
   if (payload && payload.success === 0) {
     throw new MaxPlayerError(payload.error || 'Max Player rechazó la operación', 400);
   }
+  if (options.raw) return { payload, headers: res.headers };
   return payload;
 }
 
@@ -89,9 +105,34 @@ async function getInfo() {
 }
 
 async function listUsers({ limit = 100, afterId } = {}) {
-  const qs = new URLSearchParams({ limit: String(limit) });
+  const page = await listUsersPage({ limit, afterId });
+  return page.users;
+}
+
+async function listUsersPage({ limit = 100, afterId } = {}) {
+  const qs = new URLSearchParams({ limit: String(Math.min(100, limit)) });
   if (afterId) qs.set('after_id', String(afterId));
-  return mpRequest('GET', `/users?${qs.toString()}`);
+  const { payload, headers } = await mpRequest('GET', `/users?${qs.toString()}`, undefined, { raw: true });
+  const users = Array.isArray(payload) ? payload : (payload && (payload.users || payload.data)) || [];
+  const headerMore = headers && headers.get ? headers.get('x-has-more') : null;
+  const headerCursor = headers && headers.get ? headers.get('x-next-cursor') : '';
+  const hasMore = headerMore != null
+    ? ['1', 'true'].includes(String(headerMore).toLowerCase())
+    : !!(payload && payload.has_more);
+  const nextCursor = headerCursor || (payload && payload.next_cursor) || '';
+  return { users, hasMore: !!(hasMore && nextCursor), nextCursor };
+}
+
+async function listAllUsers() {
+  const all = [];
+  let afterId = '';
+  for (let page = 0; page < 40; page += 1) {
+    const batch = await listUsersPage({ limit: 100, afterId: afterId || undefined });
+    all.push(...batch.users);
+    if (!batch.hasMore) break;
+    afterId = batch.nextCursor;
+  }
+  return all;
 }
 
 async function createUser(body) {
@@ -118,12 +159,79 @@ async function changePassword(userId, password) {
   return mpRequest('PUT', '/users/password', { user_id: String(userId), password });
 }
 
-async function searchUsers(username) {
-  return mpRequest('POST', '/users/search', { username });
+async function searchUsers(username, options = {}) {
+  const qs = new URLSearchParams();
+  if (options.limit) qs.set('limit', String(options.limit));
+  if (options.afterId) qs.set('after_id', String(options.afterId));
+  const query = qs.toString();
+  return mpRequest('POST', `/users/search${query ? `?${query}` : ''}`, { username });
+}
+
+async function searchAll(username) {
+  const users = [];
+  let afterId = '';
+  for (let page = 0; page < 40; page += 1) {
+    const found = await searchUsers(username, { limit: 100, afterId: afterId || undefined });
+    const batch = (found && found.users) || [];
+    users.push(...batch);
+    if (!found || !found.has_more || !found.next_cursor) break;
+    afterId = found.next_cursor;
+  }
+  return users;
 }
 
 async function deleteDevices(userId) {
   return mpRequest('DELETE', `/users/devices/${encodeURIComponent(userId)}`);
+}
+
+function asList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload) return [];
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.devices)) return payload.devices;
+  if (Array.isArray(payload.lists)) return payload.lists;
+  if (payload.data && Array.isArray(payload.data.devices)) return payload.data.devices;
+  if (payload.data && Array.isArray(payload.data.lists)) return payload.data.lists;
+  return [];
+}
+
+async function listCustomerDevices(userId) {
+  const payload = await mpRequest('GET', `/customers/${encodeURIComponent(userId)}/devices`);
+  return asList(payload);
+}
+
+async function deleteCustomerDevice(userId, deviceId) {
+  return mpRequest(
+    'DELETE',
+    `/customers/${encodeURIComponent(userId)}/devices/${encodeURIComponent(deviceId)}`
+  );
+}
+
+async function listCustomerPlaylists(userId) {
+  const payload = await mpRequest('GET', `/customers/${encodeURIComponent(userId)}/lists`);
+  return asList(payload);
+}
+
+// DELETE /users/devices/{id} borra todos los dispositivos. Si esa ruta falla,
+// se listan en /customers/{id}/devices y se borra cada uno.
+async function deleteAllDevices(userId) {
+  try {
+    await deleteDevices(userId);
+    return { method: 'bulk' };
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) throw err;
+    let devices = [];
+    try {
+      devices = await listCustomerDevices(userId);
+    } catch (listErr) {
+      throw err;
+    }
+    for (const device of devices) {
+      const id = device && (device.id || device.device_id);
+      if (id) await deleteCustomerDevice(userId, id);
+    }
+    return { method: 'customers', count: devices.length };
+  }
 }
 
 async function setDeviceLimit(userId, deviceLimit) {
@@ -206,7 +314,15 @@ module.exports = {
   updateList,
   changePassword,
   searchUsers,
+  searchAll,
   deleteDevices,
+  deleteAllDevices,
+  listCustomerDevices,
+  deleteCustomerDevice,
+  listCustomerPlaylists,
+  listUsersPage,
+  listAllUsers,
+  setRetryWait,
   setDeviceLimit,
   attachPlaylist,
   provisionUser,

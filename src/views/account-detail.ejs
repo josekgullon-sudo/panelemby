@@ -1,0 +1,164 @@
+<%- include('partials/header', { title: account.username, nav: 'cuentas' }) %>
+
+<p><a href="<%= listUrl %>">← Volver a cuentas</a></p>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2><%= account.username %></h2>
+    <div class="filter-row">
+      <%- include('partials/service-badges', { a: account }) %>
+      <%- include('partials/repair-button', { a: account, repairAction: base }) %>
+    </div>
+  </div>
+  <dl class="detail-grid">
+    <div><dt>Estado</dt><dd><%= account.status === 'active' ? 'activa' : 'caducada' %></dd></div>
+    <div><dt>Reseller</dt><dd><%= account.owner_name %></dd></div>
+    <div><dt>Creada</dt><dd><%= account.created_at %></dd></div>
+    <div><dt>Plan</dt><dd><%= account.plan || '—' %></dd></div>
+    <% if (account.emby_user_id || account.has_emby) { %>
+      <div><dt>Emby</dt><dd><%= account.emby_user_id || 'pendiente' %></dd></div>
+      <div><dt>Caduca Emby</dt><dd><%= account.emby_expires_at ? formatClientDate(account.emby_expires_at) : '—' %><%= account.emby_cut ? ' · cortada' : '' %></dd></div>
+    <% } %>
+    <% if (account.xui_line_id || account.player_kind) { %>
+      <div><dt>Línea XUI</dt><dd><%= account.xui_line_id || 'pendiente' %></dd></div>
+      <div><dt>Caduca XUI</dt><dd><%= account.xui_expires_at ? formatClientDate(account.xui_expires_at) : '—' %><%= account.xui_cut ? ' · cortada' : '' %></dd></div>
+      <div><dt>Paquete</dt><dd><%= account.xui_package_name || account.xui_package_id || '—' %></dd></div>
+      <div><dt>Conexiones</dt><dd><%= account.plan_screens || '—' %></dd></div>
+    <% } %>
+    <% if (account.maxplayer_user_id || account.player_kind === 'maxplayer') { %>
+      <div><dt>Max Player</dt><dd><%= account.maxplayer_user_id || 'pendiente' %></dd></div>
+      <div><dt>Servidor</dt><dd><%= account.maxplayer_domain_id ? domainLabel(account.maxplayer_domain_id) : '—' %></dd></div>
+    <% } %>
+    <% if (account.notes) { %><div><dt>Notas</dt><dd><%= account.notes %></dd></div><% } %>
+    <% if (account.provision_error) { %><div><dt>Aviso</dt><dd class="td-warn"><%= account.provision_error %></dd></div><% } %>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Tiempo</h2></div>
+  <div class="split-actions">
+    <% if (account.emby_user_id) { %>
+    <form method="post" action="<%= base %>/<%= account.id %>/ampliar" class="form-stack">
+      <div class="pop-title">Ampliar Emby</div>
+      <input type="hidden" name="service" value="emby">
+      <select name="plan_id" required aria-label="Duración Emby">
+        <% plans.forEach(p => { %>
+          <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+        <% }) %>
+      </select>
+      <button class="btn btn-primary btn-sm">Ampliar Emby</button>
+    </form>
+    <% } %>
+    <% if (account.xui_line_id) { %>
+    <form method="post" action="<%= base %>/<%= account.id %>/ampliar" class="form-stack">
+      <div class="pop-title">Ampliar XUI</div>
+      <input type="hidden" name="service" value="xui">
+      <select name="plan_id" required aria-label="Duración XUI">
+        <% plans.forEach(p => { %>
+          <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.xui_credit_cost || 0 %> cr. XUI</option>
+        <% }) %>
+      </select>
+      <p class="hint">Solo mueve la caducidad de la línea. Emby no cambia. Si hay Max Player, se suma su coste.</p>
+      <button class="btn btn-primary btn-sm">Ampliar XUI</button>
+    </form>
+    <% } %>
+  </div>
+</section>
+
+<% if (!account.emby_user_id || !account.xui_line_id) { %>
+<section class="panel">
+  <div class="panel-head"><h2>Añadir servicio</h2></div>
+  <div class="split-actions">
+    <% if (!account.emby_user_id) { %>
+    <form method="post" action="<%= base %>/<%= account.id %>/servicio" class="form-stack">
+      <div class="pop-title">Crear en Emby</div>
+      <input type="hidden" name="service" value="emby">
+      <select name="plan_id" required aria-label="Plan Emby">
+        <% plans.forEach(p => { %>
+          <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+        <% }) %>
+      </select>
+      <button class="btn btn-primary btn-sm">Crear cuenta Emby</button>
+    </form>
+    <% } %>
+    <% if (!account.xui_line_id) { %>
+    <form method="post" action="<%= base %>/<%= account.id %>/servicio" class="form-stack">
+      <div class="pop-title">Crear en XUI</div>
+      <input type="hidden" name="service" value="xui">
+      <select name="plan_id" required aria-label="Duración XUI">
+        <% plans.forEach(p => { %>
+          <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %></option>
+        <% }) %>
+      </select>
+      <select name="player_kind" aria-label="Tipo de línea">
+        <option value="totalflix">TotalFlix</option>
+        <% if (maxplayerConfigured) { %><option value="maxplayer">Max Player</option><% } %>
+      </select>
+      <select name="xui_package_id" required aria-label="Paquete XUI">
+        <% packages.forEach(pack => { %>
+          <option value="<%= pack.id %>"><%= pack.package_name %></option>
+        <% }) %>
+      </select>
+      <button class="btn btn-primary btn-sm">Crear línea XUI</button>
+    </form>
+    <% } %>
+  </div>
+</section>
+<% } %>
+
+<section class="panel">
+  <div class="panel-head"><h2>Dispositivos Emby</h2></div>
+  <% if (!account.emby_user_id) { %>
+    <p class="empty">Esta cuenta no tiene Emby.</p>
+  <% } else if (embyDevicesError) { %>
+    <p class="empty"><%= embyDevicesError %></p>
+  <% } else if (!embyDevices.length) { %>
+    <p class="empty">Ningún dispositivo de Emby.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Dispositivo</th><th>Aplicación</th><th>Última actividad</th><th></th></tr></thead>
+    <tbody>
+    <% embyDevices.forEach(d => { %>
+      <tr>
+        <td><%= d.name %></td>
+        <td class="td-dim"><%= d.app || '—' %></td>
+        <td><%= d.lastActivity || '—' %></td>
+        <td>
+          <form method="post" action="<%= base %>/<%= account.id %>/dispositivos/borrar" class="inline">
+            <input type="hidden" name="device_id" value="<%= d.id %>">
+            <button class="btn btn-danger btn-sm">Quitar</button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Dispositivos Max Player</h2></div>
+  <% if (!account.maxplayer_user_id) { %>
+    <p class="empty">Esta cuenta no tiene Max Player.</p>
+  <% } else if (mpDevicesError) { %>
+    <p class="empty"><%= mpDevicesError %></p>
+  <% } else if (!mpDevices.length) { %>
+    <p class="empty">Ningún dispositivo de Max Player.</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Dispositivo</th><th>Tipo</th><th>Visto</th></tr></thead>
+    <tbody>
+    <% mpDevices.forEach(d => { %>
+      <tr>
+        <td><%= d.name %></td>
+        <td class="td-dim"><%= d.app || '—' %></td>
+        <td><%= d.lastActivity || '—' %></td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</section>
+
+<%- include('partials/welcome-modal') %>
+<%- include('partials/footer') %>

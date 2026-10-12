@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS panel_users (
     role          TEXT NOT NULL CHECK (role IN ('admin', 'reseller')),
     credits       INTEGER NOT NULL DEFAULT 0,
     is_active     INTEGER NOT NULL DEFAULT 1,
+    xui_member_id TEXT,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -46,7 +47,12 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     player_kind         TEXT,
     maxplayer_user_id   TEXT,
     maxplayer_list_ok   INTEGER NOT NULL DEFAULT 0,
-    provision_error     TEXT
+    maxplayer_domain_id TEXT,
+    provision_error     TEXT,
+    emby_expires_at     TEXT,
+    xui_expires_at      TEXT,
+    emby_cut            INTEGER NOT NULL DEFAULT 0,
+    xui_cut             INTEGER NOT NULL DEFAULT 0
 );
 
 -- Catálogo XUI cacheado (get_packages). credit_cost NULL = usar el del plan.

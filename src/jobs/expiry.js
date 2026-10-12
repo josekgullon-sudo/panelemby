@@ -1,7 +1,7 @@
 // Proceso de caducidades. Tres pasadas, en cada sistema donde la cuenta exista:
-//   1. Activas vencidas -> Emby desactivado (o vitrina), línea XUI desactivada, estado 'expired'
-//   2. 'expired' con fecha futura -> reactivar Emby y la línea XUI
-//   3. 'expired' desde hace más de DELETE_AFTER_DAYS días -> borrar en Emby, XUI y Max Player (si > 0)
+//   1. Cada servicio vencido se corta solo. La cuenta pasa a 'expired' cuando todos lo están.
+//   2. Un servicio con fecha futura se reactiva; el que sigue cortado no se toca.
+//   3. 'expired' desde hace más de DELETE_AFTER_DAYS días (fecha más tardía) -> borrar (si > 0)
 // Max Player no tiene "desactivar": al caducar se corta la línea XUI, que es la lista.
 // Se ejecuta con el cron configurado y también una vez al arrancar el servidor
 // (por si estuvo apagado a la hora del cron).
@@ -9,7 +9,11 @@
 const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
-const { deleteEverywhere, expireRemotes, restoreRemotes } = require('../services/accounts');
+const { deleteEverywhere, expireRemotes, restoreRemotes, clockFrom } = require('../services/accounts');
+
+function utcNowSql() {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
 
 async function run() {
   const started = Date.now();
@@ -18,14 +22,37 @@ async function run() {
   let deleted = 0;
   let errors = 0;
 
-  // 1) Desactivar caducadas
-  const toExpire = db
-    .prepare("SELECT * FROM emby_accounts WHERE status = 'active' AND expires_at <= datetime('now')")
+  // 1) Cada servicio caduca por su fecha. No se toca el otro.
+  const due = db
+    .prepare(
+      `SELECT * FROM emby_accounts WHERE status != 'deleted' AND (
+         (emby_user_id IS NOT NULL AND emby_cut = 0 AND emby_expires_at IS NOT NULL AND emby_expires_at <= datetime('now'))
+         OR (xui_line_id IS NOT NULL AND xui_cut = 0 AND xui_expires_at IS NOT NULL AND xui_expires_at <= datetime('now'))
+       )`
+    )
     .all();
-  for (const account of toExpire) {
+  for (const account of due) {
     try {
-      await expireRemotes(account);
-      db.prepare("UPDATE emby_accounts SET status = 'expired' WHERE id = ?").run(account.id);
+      const now = utcNowSql();
+      if (account.emby_user_id && !account.emby_cut && account.emby_expires_at && account.emby_expires_at <= now) {
+        await expireRemotes(Object.assign({}, account, { xui_line_id: null, maxplayer_user_id: null }));
+        db.prepare('UPDATE emby_accounts SET emby_cut = 1 WHERE id = ?').run(account.id);
+      }
+      if (account.xui_line_id && !account.xui_cut && account.xui_expires_at && account.xui_expires_at <= now) {
+        await expireRemotes(Object.assign({}, account, { emby_user_id: null }));
+        db.prepare('UPDATE emby_accounts SET xui_cut = 1 WHERE id = ?').run(account.id);
+      }
+      const fresh = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(account.id);
+      const clock = clockFrom(fresh);
+      db.prepare(
+        `UPDATE emby_accounts SET expires_at = COALESCE(?, expires_at), status = CASE
+           WHEN status = 'active'
+             AND (emby_user_id IS NOT NULL OR xui_line_id IS NOT NULL)
+             AND (emby_user_id IS NULL OR emby_cut = 1)
+             AND (xui_line_id IS NULL OR xui_cut = 1)
+           THEN 'expired' ELSE status END
+         WHERE id = ?`
+      ).run(clock || null, account.id);
       disabled++;
     } catch (err) {
       errors++;
@@ -33,14 +60,31 @@ async function run() {
     }
   }
 
-  // 2) Reactivar las que figuran caducadas pero tienen fecha futura
+  // 2) Reactivar el servicio cuya fecha volvió al futuro. El otro, si sigue cortado, no se toca.
   const toReactivate = db
-    .prepare("SELECT * FROM emby_accounts WHERE status = 'expired' AND expires_at > datetime('now')")
+    .prepare(
+      `SELECT * FROM emby_accounts WHERE status = 'expired' AND (
+         (emby_user_id IS NOT NULL AND emby_expires_at > datetime('now'))
+         OR (xui_line_id IS NOT NULL AND xui_expires_at > datetime('now'))
+         OR (emby_user_id IS NULL AND xui_line_id IS NULL AND expires_at > datetime('now'))
+       )`
+    )
     .all();
   for (const account of toReactivate) {
     try {
+      const now = utcNowSql();
+      if (account.emby_user_id && account.emby_expires_at && account.emby_expires_at > now) account.emby_cut = 0;
+      if (account.xui_line_id && account.xui_expires_at && account.xui_expires_at > now) account.xui_cut = 0;
       await restoreRemotes(account);
-      db.prepare("UPDATE emby_accounts SET status = 'active' WHERE id = ?").run(account.id);
+      db.prepare(
+        `UPDATE emby_accounts SET status = 'active',
+           emby_cut = CASE WHEN emby_user_id IS NOT NULL AND emby_expires_at > datetime('now') THEN 0 ELSE emby_cut END,
+           xui_cut = CASE WHEN xui_line_id IS NOT NULL AND xui_expires_at > datetime('now') THEN 0 ELSE xui_cut END
+         WHERE id = ?`
+      ).run(account.id);
+      const fresh = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(account.id);
+      const clock = clockFrom(fresh);
+      if (clock) db.prepare('UPDATE emby_accounts SET expires_at = ? WHERE id = ?').run(clock, account.id);
       reenabled++;
     } catch (err) {
       errors++;
@@ -48,12 +92,19 @@ async function run() {
     }
   }
 
-  // 3) Borrado definitivo tras N días caducada (opcional)
+  // 3) Borrado definitivo tras N días desde la fecha más tardía de los dos servicios.
   if (config.deleteAfterDays > 0) {
     const toDelete = db
       .prepare(
         `SELECT * FROM emby_accounts
-         WHERE status = 'expired' AND expires_at <= datetime('now', ?)`
+         WHERE status = 'expired' AND COALESCE(
+           CASE
+             WHEN emby_expires_at IS NOT NULL AND xui_expires_at IS NOT NULL
+               THEN max(emby_expires_at, xui_expires_at)
+             ELSE COALESCE(emby_expires_at, xui_expires_at)
+           END,
+           expires_at
+         ) <= datetime('now', ?)`
       )
       .all(`-${config.deleteAfterDays} days`);
     for (const account of toDelete) {

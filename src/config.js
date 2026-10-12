@@ -55,6 +55,9 @@ const config = {
   maxplayerApiKey: optional('MAXPLAYER_API_KEY'),
   maxplayerDomainId: optional('MAXPLAYER_DOMAIN_ID'),
   maxplayerResellerId: optional('MAXPLAYER_RESELLER_ID'),
+  // Servidores que alterna «Reparar». Se pueden cambiar por env.
+  maxplayerDomainPatoId: optional('MAXPLAYER_DOMAIN_PATO_ID') || '1788037663857452993',
+  maxplayerDomainCisneId: optional('MAXPLAYER_DOMAIN_CISNE_ID') || '1761067741584705224',
 };
 
 if (!['disable', 'vitrina'].includes(config.expiryMode)) {

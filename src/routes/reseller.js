@@ -58,6 +58,11 @@ router.get(
     sql += ' AND a.status = ?';
     params.push(estado);
   }
+  const filters = accounts.accountListFilters(req.query);
+  if (filters.clauses.length) {
+    sql += ` AND ${filters.clauses.join(' AND ')}`;
+    params.push(...filters.params);
+  }
   sql += ' ORDER BY a.expires_at';
   const list = db.prepare(sql).all(...params);
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
@@ -69,6 +74,8 @@ router.get(
     plans,
     q,
     estado,
+    servicio: filters.servicio,
+    dominio: filters.dominio,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,
@@ -85,13 +92,15 @@ router.post(
   '/cuentas',
   wrap(async (req, res) => {
     try {
+      const services = accounts.parseServices(req.body);
+      const planId = services.emby ? parseInt(req.body.plan_id, 10) : parseInt(req.body.xui_plan_id, 10);
       const created = await accounts.createAccount({
         username: req.body.username,
         password: req.body.password,
-        planId: parseInt(req.body.plan_id, 10),
+        planId,
         owner: req.user,
         notes: req.body.notes,
-        services: accounts.parseServices(req.body),
+        services,
       });
       const card = accounts.connectionCard(created.id, req.user);
       card.mode = 'created';
@@ -239,6 +248,87 @@ router.post(
       res.redirect('/reseller/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
+router.get(
+  '/cuentas/:id',
+  wrap(async (req, res) => {
+    try {
+      const payload = await accounts.detailPayload(parseInt(req.params.id, 10), req.user);
+      const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
+      const form = await accounts.packagesForForm();
+      const newAccount = req.session.newAccount || null;
+      delete req.session.newAccount;
+      res.render('account-detail', Object.assign(payload, {
+        plans,
+        packages: form.packages,
+        maxplayerConfigured: form.maxplayerConfigured,
+        base: '/reseller/cuentas',
+        listUrl: '/reseller/cuentas',
+        newAccount,
+      }));
+    } catch (err) {
+      backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/reparar',
+  wrap(async (req, res) => {
+    const back = `/reseller/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.repairMaxPlayer({ accountId: parseInt(req.params.id, 10), actor: req.user });
+      req.setFlash('ok', `Max Player de ${result.username} reparado: dispositivos cerrados y servidor cambiado de ${result.fromLabel} a ${result.toLabel}.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/ampliar',
+  wrap(async (req, res) => {
+    const back = `/reseller/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.extendService({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+        service: req.body.service,
+        planId: parseInt(req.body.plan_id, 10),
+      });
+      req.setFlash('ok', `${result.service === 'emby' ? 'Emby' : 'XUI'} ampliado hasta ${String(result.expiresAt).slice(0, 16)}.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/servicio',
+  wrap(async (req, res) => {
+    const back = `/reseller/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.addService({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+        service: req.body.service,
+        planId: parseInt(req.body.plan_id, 10),
+        packageId: req.body.xui_package_id,
+        playerKind: req.body.player_kind,
+      });
+      const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
+      card.mode = 'created';
+      req.session.newAccount = card;
+      if (result.provisionError) req.setFlash('error', result.provisionError);
+      else req.setFlash('ok', 'Servicio añadido');
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
     }
   })
 );

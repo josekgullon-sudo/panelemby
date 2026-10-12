@@ -9,7 +9,11 @@ const db = require('./db/database');
 const app = express();
 
 // Disponible en todas las vistas EJS
-app.locals.formatDuration = require('./services/accounts').formatDuration;
+const accountsApi = require('./services/accounts');
+app.locals.formatDuration = accountsApi.formatDuration;
+app.locals.domainLabel = accountsApi.domainLabel;
+app.locals.nextDomainLabel = accountsApi.nextDomainLabel;
+app.locals.formatClientDate = accountsApi.formatClientDate;
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));

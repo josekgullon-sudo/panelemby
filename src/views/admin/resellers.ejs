@@ -41,6 +41,14 @@
               <button class="btn btn-sm">Cambiar contraseña</button>
             </form>
           </details>
+          <details>
+            <summary>XUI</summary>
+            <form method="post" action="/admin/resellers/<%= r.id %>/xui" class="form-stack">
+              <input type="text" name="xui_member_id" value="<%= r.xui_member_id || '' %>" placeholder="member_id de XUI" aria-label="member_id de XUI">
+              <p class="hint">Si coincide con la línea, la sincronización se la asigna a este reseller.</p>
+              <button class="btn btn-sm">Guardar</button>
+            </form>
+          </details>
           <form method="post" action="/admin/resellers/<%= r.id %>/toggle" class="inline">
             <button class="btn btn-ghost btn-sm"><%= r.is_active ? 'Suspender' : 'Reactivar' %></button>
           </form>

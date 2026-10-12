@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const secret = require('./secret');
+const { formatExpDate } = require('./xui');
 
 const integrations = { emby: null, xui: null, maxplayer: null };
 
@@ -191,6 +192,7 @@ function parseServices(body) {
     xui,
     playerKind: xui ? playerKind : null,
     packageId: String(body.xui_package_id || '').trim(),
+    xuiPlanId: parseInt(body.xui_plan_id, 10) || null,
   };
 }
 
@@ -201,20 +203,21 @@ function xuiCredit(plan, packageRow) {
 
 // Emby usa credit_cost (como hasta ahora). XUI suma el precio del paquete si
 // el admin lo fijó, y si no el del plan. Max Player es un extra del plan.
-function quoteCost({ plan, packageRow, emby, xui, maxplayer }) {
+function quoteCost({ plan, xuiPlan, packageRow, emby, xui, maxplayer }) {
   const parts = [];
   let cost = 0;
+  const xPlan = xuiPlan || plan;
   if (emby) {
     cost += plan.credit_cost;
     parts.push({ key: 'emby', label: 'Emby', amount: plan.credit_cost });
   }
   if (xui) {
-    const amount = xuiCredit(plan, packageRow);
+    const amount = xuiCredit(xPlan, packageRow);
     cost += amount;
     parts.push({ key: 'xui', label: 'XUI', amount });
   }
   if (maxplayer) {
-    const amount = plan.maxplayer_credit_cost || 0;
+    const amount = xPlan.maxplayer_credit_cost || 0;
     cost += amount;
     parts.push({ key: 'maxplayer', label: 'Max Player', amount });
   }
@@ -360,39 +363,50 @@ function xuiPlaylistUrl(username, password) {
   return `${base}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`;
 }
 
+function formatClientDate(sql, withTime) {
+  if (!sql) return '';
+  if (!withTime) return String(sql).slice(0, 10);
+  const date = parseSqlDate(sql);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const pick = (type) => {
+    const part = parts.find((item) => item.type === type);
+    return part ? part.value : '';
+  };
+  const hour = pick('hour') === '24' ? '00' : pick('hour');
+  return `${pick('year')}-${pick('month')}-${pick('day')} ${hour}:${pick('minute')}`;
+}
+
 function buildWelcomeMessage(card) {
+  const password = card.password || 'la que ya tienes';
   const lines = ['🎬 ¡Bienvenido a Totalflix!', ''];
+  const both = card.hasEmby && card.hasXui;
   if (card.hasEmby) {
     lines.push('📺 Emby');
     lines.push(`Servidor: ${config.embyPublicUrl}`);
     lines.push('Puerto: dejar vacío');
     lines.push(`Usuario: ${card.username}`);
-    lines.push(`Contraseña: ${card.password || 'la que ya tienes'}`);
+    lines.push(`Contraseña: ${password}`);
     if (card.screens) lines.push(`Pantallas: ${card.screens}`);
+    if (both) lines.push(`📅 Vence: ${formatClientDate(card.embyExpiresAt || card.expiresAt)}`);
     lines.push('');
   }
-  if (card.hasXui && card.playerKind !== 'maxplayer') {
-    lines.push('📡 TotalFlix');
-    if (card.xuiPublicUrl) lines.push(`Servidor: ${card.xuiPublicUrl}`);
-    else lines.push('Servidor: te lo confirma tu proveedor');
+  if (card.hasXui) {
+    lines.push('📡 XUI');
     lines.push(`Usuario: ${card.username}`);
-    lines.push(`Contraseña: ${card.password || 'la que ya tienes'}`);
-    if (card.m3u) lines.push(`Lista M3U: ${card.m3u}`);
-    lines.push('');
-  }
-  if (card.hasMaxPlayer) {
-    lines.push('📱 Max Player');
-    lines.push(`Usuario: ${card.username}`);
-    lines.push(`Contraseña: ${card.password || 'la que ya tienes'}`);
-    lines.push('Abre la app Max Player e inicia sesión: la lista ya está cargada.');
-    lines.push('');
-  } else if (card.playerKind === 'maxplayer') {
-    lines.push('📱 Max Player: todavía no está creado. Reintenta en el panel antes de enviar estos datos.');
+    lines.push(`Contraseña: ${password}`);
+    lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
     lines.push('');
   }
   if (card.plan) lines.push(`📦 Plan: ${card.plan}`);
-  if (card.packageName && card.hasXui) lines.push(`📦 Paquete: ${card.packageName}`);
-  lines.push(`📅 Vence: ${String(card.expiresAt).slice(0, 10)}`);
+  if (card.hasEmby && !card.hasXui) lines.push(`📅 Vence: ${formatClientDate(card.embyExpiresAt || card.expiresAt)}`);
   return lines.join('\n').trim();
 }
 
@@ -416,6 +430,8 @@ function connectionCard(accountId, actor) {
     plan: account.plan_name,
     screens: account.plan_screens,
     expiresAt: account.expires_at,
+    embyExpiresAt: account.emby_expires_at,
+    xuiExpiresAt: account.xui_expires_at,
     hasEmby: !!account.emby_user_id,
     hasXui: !!account.xui_line_id,
     hasMaxPlayer: !!account.maxplayer_user_id,
@@ -470,6 +486,7 @@ async function createAccount({ username, password, planId, owner, notes, service
         xui: !!services.xui,
         playerKind: services.xui ? (services.playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix') : null,
         packageId: services.packageId || '',
+        xuiPlanId: services.xuiPlanId || null,
       }
     : { emby: true, xui: false, playerKind: null, packageId: '' };
   if (!want.emby && !want.xui) throw new BusinessError('Activa Emby, XUI o los dos');
@@ -482,12 +499,20 @@ async function createAccount({ username, password, planId, owner, notes, service
 
   const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
   if (!plan) throw new BusinessError('Plan no válido');
+  const xuiPlanId = want.xui ? services.xuiPlanId || planId : null;
+  const xuiPlan = want.xui
+    ? xuiPlanId === plan.id
+      ? plan
+      : db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(xuiPlanId)
+    : null;
+  if (want.xui && !xuiPlan) throw new BusinessError('Elige la duración de XUI');
   const taken = db.prepare('SELECT 1 FROM emby_accounts WHERE username = ?').get(username);
   if (taken) throw new BusinessError('Ese nombre de usuario ya existe en el panel');
 
   const packageRow = want.xui ? await loadPackage(want.packageId) : null;
   const quoted = quoteCost({
     plan,
+    xuiPlan,
     packageRow,
     emby: want.emby,
     xui: want.xui,
@@ -499,7 +524,14 @@ async function createAccount({ username, password, planId, owner, notes, service
 
   const expiresAtDate = new Date(Date.now() + plan.duration_days * 24 * 3600 * 1000);
   const expiresAt = toSqlDate(expiresAtDate);
-  const made = { embyId: null, xuiId: null, mpId: null, listOk: 0 };
+  const xuiExpiresAt = want.xui
+    ? xuiPlan.id === plan.id
+      ? expiresAt
+      : toSqlDate(new Date(Date.now() + xuiPlan.duration_days * 24 * 3600 * 1000))
+    : null;
+  const embyExpiresAt = want.emby ? expiresAt : null;
+  const clock = [embyExpiresAt, xuiExpiresAt].filter(Boolean).sort()[0];
+  const made = { embyId: null, xuiId: null, mpId: null, listOk: 0, domainId: null };
 
   try {
     if (want.emby) {
@@ -518,7 +550,7 @@ async function createAccount({ username, password, planId, owner, notes, service
       const line = await X().createLine({
         username,
         password,
-        expDate: Math.floor(expiresAtDate.getTime() / 1000),
+        expDate: xuiExpiresAt,
         maxConnections: lineConnections(plan, packageRow),
         packageId: packageRow.id,
         isTrial: !!packageRow.is_trial,
@@ -536,6 +568,7 @@ async function createAccount({ username, password, planId, owner, notes, service
       });
       made.mpId = created.userId;
       made.listOk = 1;
+      made.domainId = String(config.maxplayerDomainId || '');
     }
   } catch (err) {
     if (!made.embyId && !made.xuiId && !made.mpId) throw err;
@@ -548,7 +581,9 @@ async function createAccount({ username, password, planId, owner, notes, service
         owner,
         plan,
         notes,
-        expiresAt,
+        expiresAt: clock,
+        embyExpiresAt,
+        xuiExpiresAt,
         want,
         packageRow,
         made,
@@ -569,7 +604,9 @@ async function createAccount({ username, password, planId, owner, notes, service
       owner,
       plan,
       notes,
-      expiresAt,
+      expiresAt: clock,
+      embyExpiresAt,
+      xuiExpiresAt,
       want,
       packageRow,
       made,
@@ -583,17 +620,32 @@ async function createAccount({ username, password, planId, owner, notes, service
   }
 }
 
-function persistNewAccount({ username, password, owner, plan, notes, expiresAt, want, packageRow, made, cost, provisionError }) {
+function persistNewAccount({
+  username,
+  password,
+  owner,
+  plan,
+  notes,
+  expiresAt,
+  embyExpiresAt,
+  xuiExpiresAt,
+  want,
+  packageRow,
+  made,
+  cost,
+  provisionError,
+}) {
   const passwordHash = bcrypt.hashSync(password, 10);
-  const bouquets = packageRow ? packageRow.bouquets || null : null;
+  const bouquets = packageRow ? JSON.stringify(parseBouquets(packageRow.bouquets)) : null;
   const insertTx = db.transaction(() => {
     const info = db
       .prepare(
         `INSERT INTO emby_accounts (
            emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
            has_emby, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
-           maxplayer_user_id, maxplayer_list_ok, provision_error
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, provision_error,
+           emby_expires_at, xui_expires_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         made.embyId,
@@ -608,11 +660,14 @@ function persistNewAccount({ username, password, owner, plan, notes, expiresAt, 
         made.xuiId,
         packageRow ? packageRow.id : null,
         packageRow ? packageRow.package_name : null,
-        bouquets,
+        bouquets && bouquets !== '[]' ? bouquets : null,
         want.playerKind,
         made.mpId,
         made.listOk ? 1 : 0,
-        provisionError
+        made.domainId || null,
+        provisionError,
+        embyExpiresAt,
+        xuiExpiresAt
       );
     if (owner.role === 'reseller') {
       deductCredits(owner.id, cost, 'create_account', info.lastInsertRowid, owner.id);
@@ -642,7 +697,7 @@ async function pushPassword(account, password) {
     try {
       await M().changePassword(account.maxplayer_user_id, password);
       await M().attachPlaylist(account.maxplayer_user_id, {
-        domainId: config.maxplayerDomainId,
+        domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
         iptvUsername: account.username,
         iptvPassword: password,
       });
@@ -700,7 +755,7 @@ async function retryProvision({ accountId, actor }) {
       const line = await X().createLine({
         username: account.username,
         password,
-        expDate: unixSeconds(account.expires_at),
+        expDate: account.xui_expires_at || account.expires_at,
         maxConnections: lineConnections(plan || { screens: 1 }, packageRow),
         packageId: packageRow.id,
         isTrial: !!packageRow.is_trial,
@@ -728,7 +783,11 @@ async function retryProvision({ accountId, actor }) {
         iptvPass: password,
         domainId: config.maxplayerDomainId,
       });
-      saveProgress(account.id, { maxplayer_user_id: created.userId, maxplayer_list_ok: 1 });
+      saveProgress(account.id, {
+        maxplayer_user_id: created.userId,
+        maxplayer_list_ok: 1,
+        maxplayer_domain_id: config.maxplayerDomainId || null,
+      });
       account = loadOwned(account.id, actor);
     } catch (err) {
       errors.push(`Max Player: ${err.message}`);
@@ -736,7 +795,7 @@ async function retryProvision({ accountId, actor }) {
   } else if (account.maxplayer_user_id && !account.maxplayer_list_ok && password) {
     try {
       await M().attachPlaylist(account.maxplayer_user_id, {
-        domainId: config.maxplayerDomainId,
+        domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
         iptvUsername: account.username,
         iptvPassword: password,
       });
@@ -775,16 +834,21 @@ async function renewAccount({ accountId, planId, actor }) {
     throw new BusinessError(`Créditos insuficientes: el plan cuesta ${quoted.cost} y tienes ${actor.credits}`);
   }
 
-  const base = Math.max(Date.now(), parseSqlDate(account.expires_at).getTime());
-  const newExpiry = toSqlDate(new Date(base + plan.duration_days * 24 * 3600 * 1000));
-  await renewRemotes(account, plan, newExpiry);
+  const embyExpiry = account.emby_user_id ? extendDate(account.emby_expires_at || account.expires_at, plan) : null;
+  const xuiExpiry = account.xui_line_id ? extendDate(account.xui_expires_at || account.expires_at, plan) : null;
+  const newExpiry = [embyExpiry, xuiExpiry].filter(Boolean).sort()[0] || extendDate(account.expires_at, plan);
+  await renewRemotes(account, plan, { embyExpiry, xuiExpiry });
 
   const renewTx = db.transaction(() => {
-    db.prepare("UPDATE emby_accounts SET expires_at = ?, status = 'active', plan_id = ? WHERE id = ?").run(
-      newExpiry,
-      plan.id,
-      account.id
-    );
+    db.prepare(
+      `UPDATE emby_accounts
+       SET expires_at = ?, status = 'active', plan_id = ?,
+           emby_expires_at = COALESCE(?, emby_expires_at),
+           xui_expires_at = COALESCE(?, xui_expires_at),
+           emby_cut = CASE WHEN ? IS NULL THEN emby_cut ELSE 0 END,
+           xui_cut = CASE WHEN ? IS NULL THEN xui_cut ELSE 0 END
+       WHERE id = ?`
+    ).run(newExpiry, plan.id, embyExpiry, xuiExpiry, embyExpiry, xuiExpiry, account.id);
     if (actor.role === 'reseller') {
       deductCredits(actor.id, quoted.cost, 'renew', account.id, actor.id);
     }
@@ -793,7 +857,23 @@ async function renewAccount({ accountId, planId, actor }) {
   return newExpiry;
 }
 
-async function renewRemotes(account, plan, newExpiry) {
+function extendDate(sql, plan) {
+  const base = Math.max(Date.now(), sql ? parseSqlDate(sql).getTime() : Date.now());
+  return toSqlDate(new Date(base + plan.duration_days * 24 * 3600 * 1000));
+}
+
+function clockFrom(account) {
+  const dates = [];
+  if (account.emby_user_id || account.has_emby) dates.push(account.emby_expires_at || account.expires_at);
+  if (account.xui_line_id || account.player_kind) dates.push(account.xui_expires_at || account.expires_at);
+  const present = dates.filter(Boolean);
+  if (!present.length) return account.expires_at;
+  const future = present.filter((value) => parseSqlDate(value).getTime() > Date.now());
+  const pool = future.length ? future : present;
+  return pool.slice().sort()[future.length ? 0 : pool.length - 1];
+}
+
+async function renewRemotes(account, plan, dates) {
   const errors = [];
   if (account.emby_user_id) {
     try {
@@ -809,7 +889,7 @@ async function renewRemotes(account, plan, newExpiry) {
       const packageRow = account.xui_package_id
         ? db.prepare('SELECT max_connections FROM xui_packages WHERE id = ?').get(String(account.xui_package_id))
         : null;
-      const fields = { exp_date: unixSeconds(newExpiry) };
+      const fields = { exp_date: formatExpDate(dates.xuiExpiry || account.xui_expires_at || account.expires_at) };
       if (!packageRow || !packageRow.max_connections) fields.max_connections = plan.screens || 1;
       await X().editLine(account.xui_line_id, xuiEditFields(account, fields));
       await X().enableLine(account.xui_line_id);
@@ -822,7 +902,7 @@ async function renewRemotes(account, plan, newExpiry) {
     if (password && config.maxplayerDomainId) {
       try {
         await M().attachPlaylist(account.maxplayer_user_id, {
-          domainId: config.maxplayerDomainId,
+          domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
           iptvUsername: account.username,
           iptvPassword: password,
         });
@@ -1014,22 +1094,307 @@ async function expireRemotes(account) {
 
 async function restoreRemotes(account) {
   const errors = [];
-  if (account.emby_user_id) {
+  if (account.emby_user_id && !account.emby_cut) {
     try {
       await E().updatePolicy(account.emby_user_id, await restoredPolicyPatch());
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
     }
   }
-  if (account.xui_line_id) {
+  if (account.xui_line_id && !account.xui_cut) {
     try {
-      await X().editLine(account.xui_line_id, xuiEditFields(account, { exp_date: unixSeconds(account.expires_at) }));
+      await X().editLine(
+        account.xui_line_id,
+        xuiEditFields(account, { exp_date: formatExpDate(account.xui_expires_at || account.expires_at) })
+      );
       await X().enableLine(account.xui_line_id);
     } catch (err) {
       errors.push(`XUI: ${err.message}`);
     }
   }
   if (errors.length) throw new Error(errors.join(' · '));
+}
+
+function domainLabel(id) {
+  const value = id == null ? '' : String(id);
+  if (value && value === String(config.maxplayerDomainPatoId)) return 'PATO';
+  if (value && value === String(config.maxplayerDomainCisneId)) return 'CISNE';
+  return value ? 'otro servidor' : 'el servidor actual';
+}
+
+function nextDomainLabel(id) {
+  return String(id || '') === String(config.maxplayerDomainPatoId) ? 'CISNE' : 'PATO';
+}
+
+function accountListFilters(query) {
+  const servicio = ['emby', 'xui', 'maxplayer', 'totalflix'].includes(query.servicio) ? query.servicio : '';
+  const dominio = ['pato', 'cisne'].includes(query.dominio) ? query.dominio : '';
+  const clauses = [];
+  const params = [];
+  if (servicio === 'emby') clauses.push('(a.has_emby = 1 OR a.emby_user_id IS NOT NULL)');
+  if (servicio === 'xui') clauses.push('a.xui_line_id IS NOT NULL');
+  if (servicio === 'maxplayer') clauses.push("(a.player_kind = 'maxplayer' OR a.maxplayer_user_id IS NOT NULL)");
+  if (servicio === 'totalflix') clauses.push("a.player_kind = 'totalflix'");
+  if (dominio === 'pato') {
+    clauses.push('a.maxplayer_domain_id = ?');
+    params.push(String(config.maxplayerDomainPatoId));
+  }
+  if (dominio === 'cisne') {
+    clauses.push('a.maxplayer_domain_id = ?');
+    params.push(String(config.maxplayerDomainCisneId));
+  }
+  return { servicio, dominio, clauses, params };
+}
+
+function chargeReseller(actor, cost, reason, accountId) {
+  if (actor.role !== 'reseller' || !cost) return;
+  deductCredits(actor.id, cost, reason, accountId, actor.id);
+}
+
+async function extendService({ accountId, actor, service, planId }) {
+  const account = loadOwned(accountId, actor);
+  const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
+  if (!plan) throw new BusinessError('Plan no válido');
+  if (service !== 'emby' && service !== 'xui') throw new BusinessError('Servicio no válido');
+
+  const packageRow = account.xui_package_id
+    ? db.prepare('SELECT * FROM xui_packages WHERE id = ?').get(String(account.xui_package_id))
+    : null;
+  const quoted = quoteCost({
+    plan,
+    xuiPlan: plan,
+    packageRow,
+    emby: service === 'emby',
+    xui: service === 'xui',
+    maxplayer: service === 'xui' && !!account.maxplayer_user_id,
+  });
+  if (actor.role === 'reseller' && actor.credits < quoted.cost) {
+    throw new BusinessError(`Créditos insuficientes: ampliar cuesta ${quoted.cost} y tienes ${actor.credits}`);
+  }
+
+  if (service === 'emby') {
+    if (!account.emby_user_id) throw new BusinessError('Esta cuenta no tiene Emby. Créalo antes de ampliarlo.');
+    const embyExpiry = extendDate(account.emby_expires_at || account.expires_at, plan);
+    const patch = { SimultaneousStreamLimit: plan.screens || 1 };
+    if (account.emby_cut || account.status === 'expired') Object.assign(patch, await restoredPolicyPatch());
+    await E().updatePolicy(account.emby_user_id, patch);
+    const next = Object.assign({}, account, { emby_expires_at: embyExpiry, emby_cut: 0 });
+    const expiresAt = clockFrom(next);
+    const tx = db.transaction(() => {
+      db.prepare(
+        `UPDATE emby_accounts
+         SET emby_expires_at = ?, emby_cut = 0, expires_at = ?, status = 'active', plan_id = ?
+         WHERE id = ?`
+      ).run(embyExpiry, expiresAt, plan.id, account.id);
+      chargeReseller(actor, quoted.cost, 'renew', account.id);
+    });
+    tx();
+    return { expiresAt: embyExpiry, cost: quoted.cost, service: 'emby' };
+  }
+
+  if (!account.xui_line_id) throw new BusinessError('Esta cuenta no tiene línea XUI. Créala antes de ampliarla.');
+  const xuiExpiry = extendDate(account.xui_expires_at || account.expires_at, plan);
+  const fields = { exp_date: formatExpDate(xuiExpiry) };
+  if (!packageRow || !packageRow.max_connections) fields.max_connections = plan.screens || 1;
+  await X().editLine(account.xui_line_id, xuiEditFields(account, fields));
+  await X().enableLine(account.xui_line_id);
+  const next = Object.assign({}, account, { xui_expires_at: xuiExpiry, xui_cut: 0 });
+  const expiresAt = clockFrom(next);
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE emby_accounts
+       SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active'
+       WHERE id = ?`
+    ).run(xuiExpiry, expiresAt, account.id);
+    chargeReseller(actor, quoted.cost, 'renew', account.id);
+  });
+  tx();
+  return { expiresAt: xuiExpiry, cost: quoted.cost, service: 'xui' };
+}
+
+async function addService({ accountId, actor, service, planId, packageId, playerKind }) {
+  let account = loadOwned(accountId, actor);
+  const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  if (!password) {
+    throw new BusinessError('No hay contraseña guardada. Pon una nueva y después añade el servicio.');
+  }
+  const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
+  if (!plan) throw new BusinessError('Plan no válido');
+
+  if (service === 'emby') {
+    if (account.emby_user_id) throw new BusinessError('Esta cuenta ya tiene Emby');
+    const quoted = quoteCost({ plan, emby: true, xui: false, maxplayer: false });
+    if (actor.role === 'reseller' && actor.credits < quoted.cost) {
+      throw new BusinessError(`Créditos insuficientes: Emby cuesta ${quoted.cost} y tienes ${actor.credits}`);
+    }
+    const user = await E().createUser(account.username, password);
+    try {
+      await E().updatePolicy(user.Id, { SimultaneousStreamLimit: plan.screens || 1, ...(await activeLibrariesPatch()) });
+    } catch (err) {
+      await E().deleteUser(user.Id).catch(() => {});
+      throw err;
+    }
+    const embyExpiry = extendDate(null, plan);
+    const next = Object.assign({}, account, { emby_expires_at: embyExpiry, has_emby: 1, emby_user_id: user.Id });
+    const tx = db.transaction(() => {
+      db.prepare(
+        `UPDATE emby_accounts
+         SET emby_user_id = ?, has_emby = 1, emby_expires_at = ?, emby_cut = 0, expires_at = ?, plan_id = ?, status = 'active'
+         WHERE id = ?`
+      ).run(user.Id, embyExpiry, clockFrom(next), plan.id, account.id);
+      chargeReseller(actor, quoted.cost, 'create_account', account.id);
+    });
+    tx();
+    return { cost: quoted.cost };
+  }
+
+  if (service !== 'xui') throw new BusinessError('Servicio no válido');
+  if (account.xui_line_id) throw new BusinessError('Esta cuenta ya tiene línea XUI');
+  const kind = playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix';
+  const packageRow = await loadPackage(packageId);
+  const quoted = quoteCost({
+    plan,
+    xuiPlan: plan,
+    packageRow,
+    emby: false,
+    xui: true,
+    maxplayer: kind === 'maxplayer',
+  });
+  if (actor.role === 'reseller' && actor.credits < quoted.cost) {
+    throw new BusinessError(`Créditos insuficientes: XUI cuesta ${quoted.cost} y tienes ${actor.credits}`);
+  }
+  const xuiExpiry = toSqlDate(new Date(Date.now() + plan.duration_days * 24 * 3600 * 1000));
+  const line = await X().createLine({
+    username: account.username,
+    password,
+    expDate: xuiExpiry,
+    maxConnections: lineConnections(plan, packageRow),
+    packageId: packageRow.id,
+    isTrial: !!packageRow.is_trial,
+    bouquets: parseBouquets(packageRow.bouquets),
+  });
+  let mpId = null;
+  let domainId = null;
+  let provisionError = null;
+  if (kind === 'maxplayer') {
+    try {
+      const created = await M().provisionUser({
+        username: account.username,
+        password,
+        iptvUser: account.username,
+        iptvPass: password,
+        domainId: config.maxplayerDomainId,
+      });
+      mpId = created.userId;
+      domainId = config.maxplayerDomainId || null;
+    } catch (err) {
+      provisionError = `Línea XUI creada, pero Max Player falló (${err.message}). Pulsa Reintentar: no se vuelve a cobrar.`;
+    }
+  }
+  const next = Object.assign({}, account, { xui_expires_at: xuiExpiry, xui_line_id: line.id, player_kind: kind });
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE emby_accounts
+       SET xui_line_id = ?, xui_package_id = ?, xui_package_name = ?, xui_bouquets = ?, player_kind = ?,
+           xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active',
+           maxplayer_user_id = COALESCE(?, maxplayer_user_id),
+           maxplayer_domain_id = COALESCE(?, maxplayer_domain_id),
+           maxplayer_list_ok = ?, provision_error = ?
+       WHERE id = ?`
+    ).run(
+      line.id,
+      packageRow.id,
+      packageRow.package_name,
+      JSON.stringify(parseBouquets(packageRow.bouquets)),
+      kind,
+      xuiExpiry,
+      clockFrom(next),
+      mpId,
+      domainId,
+      mpId ? 1 : 0,
+      provisionError,
+      account.id
+    );
+    chargeReseller(actor, quoted.cost, 'create_account', account.id);
+  });
+  tx();
+  return { cost: quoted.cost, provisionError };
+}
+
+async function repairMaxPlayer({ accountId, actor }) {
+  const account = loadOwned(accountId, actor);
+  if (!account.maxplayer_user_id) throw new BusinessError('Esta cuenta no tiene usuario de Max Player');
+  const pato = String(config.maxplayerDomainPatoId || '');
+  const cisne = String(config.maxplayerDomainCisneId || '');
+  if (!pato || !cisne) throw new BusinessError('Faltan MAXPLAYER_DOMAIN_PATO_ID y MAXPLAYER_DOMAIN_CISNE_ID');
+  const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  if (!password) {
+    throw new BusinessError('Falta la contraseña guardada para cambiar de servidor. Pon una nueva y pulsa Reparar otra vez.');
+  }
+  const current = String(account.maxplayer_domain_id || '');
+  const target = current === pato ? cisne : pato;
+  await M().deleteAllDevices(account.maxplayer_user_id);
+  await M().attachPlaylist(account.maxplayer_user_id, {
+    domainId: target,
+    iptvUsername: account.username,
+    iptvPassword: password,
+  });
+  saveProgress(account.id, { maxplayer_domain_id: target, maxplayer_list_ok: 1 });
+  return {
+    username: account.username,
+    fromLabel: domainLabel(current),
+    toLabel: domainLabel(target),
+  };
+}
+
+async function listMaxPlayerDevices(userId) {
+  const raw = await M().listCustomerDevices(userId);
+  return raw.map((device) => ({
+    id: String(device.id || device.device_id || ''),
+    name: device.name || device.device_name || 'Dispositivo',
+    app: device.device_type || device.model || '',
+    lastActivity: device.last_seen || device.updated_at || '',
+  }));
+}
+
+async function detailPayload(accountId, actor) {
+  const account = loadDetail(accountId, actor);
+  let embyDevices = [];
+  let embyDevicesError = null;
+  let mpDevices = [];
+  let mpDevicesError = null;
+  if (account.emby_user_id) {
+    try {
+      embyDevices = await listDevices(account.emby_user_id);
+    } catch (err) {
+      embyDevicesError = err.message;
+    }
+  }
+  if (account.maxplayer_user_id) {
+    try {
+      mpDevices = await listMaxPlayerDevices(account.maxplayer_user_id);
+    } catch (err) {
+      mpDevicesError = err.message;
+    }
+  }
+  return { account, embyDevices, embyDevicesError, mpDevices, mpDevicesError };
+}
+
+function loadDetail(accountId, actor) {
+  const account = db
+    .prepare(
+      `SELECT a.*, p.username AS owner_name, pl.name AS plan, pl.duration_days, pl.screens AS plan_screens
+       FROM emby_accounts a
+       JOIN panel_users p ON p.id = a.owner_id
+       LEFT JOIN plans pl ON pl.id = a.plan_id
+       WHERE a.id = ? AND a.status != 'deleted'`
+    )
+    .get(accountId);
+  if (!account) throw new BusinessError('Cuenta no encontrada');
+  if (actor && actor.role === 'reseller' && account.owner_id !== actor.id) {
+    throw new BusinessError('Esa cuenta no es tuya');
+  }
+  return account;
 }
 
 module.exports = {
@@ -1066,5 +1431,16 @@ module.exports = {
   restoredPolicyPatch,
   expireRemotes,
   restoreRemotes,
+  extendService,
+  addService,
+  repairMaxPlayer,
+  listMaxPlayerDevices,
+  loadDetail,
+  detailPayload,
+  domainLabel,
+  nextDomainLabel,
+  accountListFilters,
+  formatClientDate,
+  clockFrom,
   setIntegrations,
 };

@@ -45,6 +45,23 @@ ensureColumn(
   'ALTER TABLE emby_accounts ADD COLUMN maxplayer_list_ok INTEGER NOT NULL DEFAULT 0'
 );
 ensureColumn('emby_accounts', 'provision_error', 'ALTER TABLE emby_accounts ADD COLUMN provision_error TEXT');
+ensureColumn('emby_accounts', 'maxplayer_domain_id', 'ALTER TABLE emby_accounts ADD COLUMN maxplayer_domain_id TEXT');
+ensureColumn('emby_accounts', 'emby_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN emby_expires_at TEXT');
+ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN xui_expires_at TEXT');
+ensureColumn('emby_accounts', 'emby_cut', 'ALTER TABLE emby_accounts ADD COLUMN emby_cut INTEGER NOT NULL DEFAULT 0');
+ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN xui_cut INTEGER NOT NULL DEFAULT 0');
+ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
+
+db.exec(`
+  UPDATE emby_accounts SET emby_expires_at = expires_at
+   WHERE emby_expires_at IS NULL AND (has_emby = 1 OR emby_user_id IS NOT NULL);
+  UPDATE emby_accounts SET xui_expires_at = expires_at
+   WHERE xui_expires_at IS NULL AND (xui_line_id IS NOT NULL OR player_kind IS NOT NULL);
+  UPDATE emby_accounts SET emby_cut = 1
+   WHERE status = 'expired' AND emby_user_id IS NOT NULL AND emby_cut = 0;
+  UPDATE emby_accounts SET xui_cut = 1
+   WHERE status = 'expired' AND xui_line_id IS NOT NULL AND xui_cut = 0;
+`);
 ensureColumn('plans', 'xui_credit_cost', 'ALTER TABLE plans ADD COLUMN xui_credit_cost INTEGER NOT NULL DEFAULT 0');
 ensureColumn(
   'plans',
@@ -59,6 +76,8 @@ db.exec(`
     ON emby_accounts(xui_line_id) WHERE xui_line_id IS NOT NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_emby_accounts_mp_user
     ON emby_accounts(maxplayer_user_id) WHERE maxplayer_user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_users_xui_member
+    ON panel_users(xui_member_id) WHERE xui_member_id IS NOT NULL;
 `);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue

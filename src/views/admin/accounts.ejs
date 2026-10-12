@@ -15,19 +15,34 @@
         <option value="active" <%= estado === 'active' ? 'selected' : '' %>>Activas</option>
         <option value="expired" <%= estado === 'expired' ? 'selected' : '' %>>Caducadas</option>
       </select>
+      <select name="servicio" aria-label="Servicio">
+        <option value="">Todos los servicios</option>
+        <option value="emby" <%= servicio === 'emby' ? 'selected' : '' %>>Emby</option>
+        <option value="xui" <%= servicio === 'xui' ? 'selected' : '' %>>XUI</option>
+        <option value="maxplayer" <%= servicio === 'maxplayer' ? 'selected' : '' %>>Max Player</option>
+        <option value="totalflix" <%= servicio === 'totalflix' ? 'selected' : '' %>>TotalFlix</option>
+      </select>
+      <select name="dominio" aria-label="Servidor Max Player">
+        <option value="">Cualquier servidor</option>
+        <option value="pato" <%= dominio === 'pato' ? 'selected' : '' %>>PATO</option>
+        <option value="cisne" <%= dominio === 'cisne' ? 'selected' : '' %>>CISNE</option>
+      </select>
       <button class="btn">Filtrar</button>
+    </form>
+    <form method="post" action="/admin/cuentas/sincronizar-xui" class="inline" onsubmit="return confirm('¿Traer todas las líneas de XUI? No se cobran créditos ni se duplican cuentas.');">
+      <button class="btn">Sincronizar XUI</button>
     </form>
   </div>
 
   <% if (list.length === 0) { %>
-    <p class="empty"><%= q || estado ? 'Ninguna cuenta coincide con el filtro.' : 'No hay cuentas todavía. Crea la primera arriba.' %></p>
+    <p class="empty"><%= q || estado || servicio || dominio ? 'Ninguna cuenta coincide con el filtro.' : 'No hay cuentas todavía. Crea la primera arriba.' %></p>
   <% } else { %>
   <table>
     <thead><tr><th>Cuenta</th><th>Servicios</th><th>Reseller</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
     <tbody>
     <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
       <tr>
-        <td class="td-strong"><%= a.username %><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %><% if (a.provision_error) { %><span class="td-note td-warn" title="<%= a.provision_error %>"><%= a.provision_error %></span><% } %></td>
+        <td class="td-strong"><a href="/admin/cuentas/<%= a.id %>"><%= a.username %></a><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %><% if (a.provision_error) { %><span class="td-note td-warn" title="<%= a.provision_error %>"><%= a.provision_error %></span><% } %></td>
         <td><%- include('../partials/service-badges', { a: a }) %></td>
         <td><%= a.owner %></td>
         <td class="td-dim"><%= a.plan || '—' %></td>
@@ -84,7 +99,8 @@
               <button class="btn btn-sm">Cambiar contraseña</button>
             </form>
           </details>
-          <% if (a.emby_user_id) { %><a class="btn btn-ghost btn-sm" href="/admin/cuentas/<%= a.id %>/dispositivos">Dispositivos</a><% } %>
+          <%- include('../partials/repair-button', { a: a, repairAction: '/admin/cuentas' }) %>
+          <a class="btn btn-ghost btn-sm" href="/admin/cuentas/<%= a.id %>">Ficha</a>
           <details>
             <summary>Mover</summary>
             <form method="post" action="/admin/cuentas/<%= a.id %>/mover" class="form-stack">

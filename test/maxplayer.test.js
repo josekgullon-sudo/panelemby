@@ -108,6 +108,20 @@ test('DELETE /users/{id} y los errores de la API conservan el status', async () 
   });
 });
 
+test('un 503 de cupo se reintenta y luego sigue', async () => {
+  maxplayer.setRetryWait(async () => {});
+  let n = 0;
+  mockFetch(() => {
+    n += 1;
+    if (n === 1) return jsonResponse({ success: 0, error: 'Could not verify public API allowance. Please retry.' }, 503);
+    return jsonResponse({ success: 1, name: 'ok' });
+  });
+  const info = await maxplayer.getInfo();
+  assert.equal(info.name, 'ok');
+  assert.equal(n, 2);
+  maxplayer.setRetryWait(null);
+});
+
 test('un 429 menciona Retry-After', async () => {
   mockFetch(() => jsonResponse(null, 429, { 'retry-after': '8' }));
   await assert.rejects(() => maxplayer.getInfo(), /8 s/);
