@@ -28,18 +28,26 @@ function unitFor(days) {
       </div>
     </div>
     <div class="field">
-      <label for="np-cost">Coste en créditos</label>
+      <label for="np-cost">Coste Emby</label>
       <input id="np-cost" type="number" name="credit_cost" min="0" value="1" required>
     </div>
     <div class="field">
       <label for="np-scr">Pantallas</label>
       <input id="np-scr" type="number" name="screens" min="1" max="10" value="1" required>
     </div>
+    <div class="field">
+      <label for="np-xui">Coste XUI</label>
+      <input id="np-xui" type="number" name="xui_credit_cost" min="0" value="0" required>
+    </div>
+    <div class="field">
+      <label for="np-max">Extra Max Player</label>
+      <input id="np-max" type="number" name="maxplayer_credit_cost" min="0" value="0" required>
+    </div>
     <div class="field field-btn">
       <button class="btn btn-primary">Crear plan</button>
     </div>
   </form>
-  <p class="hint">Las pantallas se aplican en Emby como límite de reproducciones simultáneas al crear o renovar.</p>
+  <p class="hint">Emby cobra el coste de siempre. XUI se suma al crear la línea, salvo que el paquete tenga un precio propio. Max Player es un extra encima de XUI. 0 significa que ese servicio no gasta créditos.</p>
 </section>
 
 <section class="panel">
@@ -48,13 +56,15 @@ function unitFor(days) {
     <p class="empty">No hay planes. Crea al menos uno para poder dar de alta cuentas.</p>
   <% } else { %>
   <table>
-    <thead><tr><th>Plan</th><th>Duración</th><th>Coste</th><th>Pantallas</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <thead><tr><th>Plan</th><th>Duración</th><th>Emby</th><th>XUI</th><th>Max Player</th><th>Pantallas</th><th>Estado</th><th>Acciones</th></tr></thead>
     <tbody>
     <% plans.forEach(p => { const u = unitFor(p.duration_days); %>
       <tr>
         <td class="td-strong"><%= p.name %></td>
         <td><%= formatDuration(p.duration_days) %></td>
         <td><span class="chip-soft"><%= p.credit_cost %> cr.</span></td>
+        <td><span class="chip-soft"><%= p.xui_credit_cost || 0 %> cr.</span></td>
+        <td><span class="chip-soft"><%= p.maxplayer_credit_cost || 0 %> cr.</span></td>
         <td><%= p.screens %></td>
         <td>
           <% if (p.is_active) { %><span class="badge badge-ok">activo</span>
@@ -81,12 +91,20 @@ function unitFor(days) {
                 </div>
               </div>
               <div class="field">
-                <label for="ep-cost-<%= p.id %>">Coste en créditos</label>
+                <label for="ep-cost-<%= p.id %>">Coste Emby</label>
                 <input id="ep-cost-<%= p.id %>" type="number" name="credit_cost" value="<%= p.credit_cost %>" min="0" required>
               </div>
               <div class="field">
                 <label for="ep-scr-<%= p.id %>">Pantallas</label>
                 <input id="ep-scr-<%= p.id %>" type="number" name="screens" value="<%= p.screens %>" min="1" max="10" required>
+              </div>
+              <div class="field">
+                <label for="ep-xui-<%= p.id %>">Coste XUI</label>
+                <input id="ep-xui-<%= p.id %>" type="number" name="xui_credit_cost" value="<%= p.xui_credit_cost || 0 %>" min="0" required>
+              </div>
+              <div class="field">
+                <label for="ep-max-<%= p.id %>">Extra Max Player</label>
+                <input id="ep-max-<%= p.id %>" type="number" name="maxplayer_credit_cost" value="<%= p.maxplayer_credit_cost || 0 %>" min="0" required>
               </div>
               <button class="btn btn-primary btn-sm">Guardar cambios</button>
             </form>
@@ -99,6 +117,43 @@ function unitFor(days) {
     <% }) %>
     </tbody>
   </table>
+  <% } %>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Paquetes XUI <span class="count"><%= packages.length %></span></h2>
+    <% if (xuiConfigured) { %>
+      <form method="post" action="/admin/paquetes/sync" class="inline">
+        <button class="btn btn-primary btn-sm">Actualizar desde XUI</button>
+      </form>
+    <% } %>
+  </div>
+  <% if (!xuiConfigured) { %>
+    <p class="empty">XUI no está configurado. Cuando pongas XUI_API_URL y XUI_API_KEY, aquí podrás traer los paquetes y ponerles precio.</p>
+  <% } else if (packages.length === 0) { %>
+    <p class="empty">Todavía no hay paquetes guardados. Pulsa «Actualizar desde XUI».</p>
+  <% } else { %>
+  <table>
+    <thead><tr><th>Paquete</th><th>Tipo</th><th>Conexiones</th><th>Precio en créditos</th></tr></thead>
+    <tbody>
+    <% packages.forEach(pack => { %>
+      <tr>
+        <td class="td-strong"><%= pack.package_name %></td>
+        <td><% if (pack.is_trial) { %><span class="badge badge-warn">prueba</span><% } else { %><span class="badge badge-ok">oficial</span><% } %></td>
+        <td><%= pack.max_connections || '—' %></td>
+        <td>
+          <form method="post" action="/admin/paquetes/coste" class="form-row pack-cost">
+            <input type="hidden" name="package_id" value="<%= pack.id %>">
+            <input type="number" name="credit_cost" min="0" value="<%= pack.credit_cost == null ? '' : pack.credit_cost %>" placeholder="plan" aria-label="Créditos del paquete <%= pack.package_name %>">
+            <button class="btn btn-sm">Guardar</button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  <p class="hint">Vacío = al crear la línea se cobra el coste XUI del plan. Un número sustituye ese coste. El extra de Max Player del plan se suma aparte.</p>
   <% } %>
 </section>
 

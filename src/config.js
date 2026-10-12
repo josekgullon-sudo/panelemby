@@ -11,6 +11,18 @@ function required(name) {
   return value.trim();
 }
 
+// Vacío si no está o sigue siendo un marcador. XUI y Max Player son opcionales:
+// el panel arranca solo con Emby y esas altas se rechazan hasta configurarlas.
+function optional(name) {
+  const value = process.env[name];
+  if (!value || value.trim() === '' || value.includes('PON_AQUI') || value.includes('cambia_esto')) return '';
+  return value.trim();
+}
+
+function flag(name) {
+  return ['1', 'true', 'yes', 'on'].includes((process.env[name] || '').trim().toLowerCase());
+}
+
 const config = {
   embyUrl: required('EMBY_URL').replace(/\/+$/, ''),
   embyApiKey: required('EMBY_API_KEY'),
@@ -28,6 +40,21 @@ const config = {
   //   vitrina  -> sigue entrando, pero solo ve la biblioteca-cartel (EXPIRY_LIBRARY)
   expiryMode: (process.env.EXPIRY_MODE || 'disable').trim(),
   expiryLibrary: (process.env.EXPIRY_LIBRARY || '').trim(),
+
+  // XUI.one admin API. Base con el código de acceso, sin query:
+  //   https://149.62.187.37/qArcBQyi
+  xuiApiUrl: optional('XUI_API_URL').replace(/\/+$/, ''),
+  xuiApiKey: optional('XUI_API_KEY'),
+  // Certificado autofirmado (IP directa). Solo afecta a las peticiones XUI.
+  xuiInsecureTls: flag('XUI_INSECURE_TLS'),
+  xuiMemberId: optional('XUI_MEMBER_ID'),
+  // URL Xtream/M3U que ve el cliente. No es la URL del admin.
+  xuiPublicUrl: optional('XUI_PUBLIC_URL').replace(/\/+$/, ''),
+
+  maxplayerApiUrl: (optional('MAXPLAYER_API_URL') || 'https://api.maxplayer.tv/v3/api/public').replace(/\/+$/, ''),
+  maxplayerApiKey: optional('MAXPLAYER_API_KEY'),
+  maxplayerDomainId: optional('MAXPLAYER_DOMAIN_ID'),
+  maxplayerResellerId: optional('MAXPLAYER_RESELLER_ID'),
 };
 
 if (!['disable', 'vitrina'].includes(config.expiryMode)) {

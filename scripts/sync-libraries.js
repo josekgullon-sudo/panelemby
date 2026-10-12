@@ -28,6 +28,10 @@ const accounts = require('../src/services/accounts');
   let ok = 0;
   let errors = 0;
   for (const account of list) {
+    if (!account.emby_user_id) {
+      console.log(`  [skip] ${account.username} — no tiene usuario en Emby`);
+      continue;
+    }
     try {
       await emby.updatePolicy(account.emby_user_id, account.status === 'active' ? activePatch : expiredPatch);
       console.log(`  [ok] ${account.username} (${account.status})`);

@@ -21,6 +21,11 @@
   </div>
 </div>
 
+<% if (account.provision_error) { %>
+  <div class="flash flash-error">Tu acceso todavía se está preparando. Si te falta algún servicio, escribe a tu proveedor.</div>
+<% } %>
+
+<% if (account.emby_user_id) { %>
 <section class="panel">
   <div class="panel-head"><h2>Conéctate a Emby</h2></div>
   <table class="kv">
@@ -34,5 +39,30 @@
   </table>
   <p class="hint">Descarga la app de Emby en tu televisor, móvil u ordenador e introduce estos datos.</p>
 </section>
+<% } %>
+
+<% if (account.xui_line_id && account.player_kind !== 'maxplayer') { %>
+<section class="panel">
+  <div class="panel-head"><h2>TotalFlix</h2></div>
+  <table class="kv">
+    <% if (xuiPublicUrl) { %><tr><th>Servidor</th><td><code><%= xuiPublicUrl %></code></td></tr><% } %>
+    <tr><th>Usuario</th><td><code><%= account.username %></code></td></tr>
+    <tr><th>Contraseña</th><td class="td-dim">la que te dio tu proveedor</td></tr>
+    <% if (account.xui_package_name) { %><tr><th>Paquete</th><td><%= account.xui_package_name %></td></tr><% } %>
+  </table>
+  <p class="hint">Esos datos sirven en la app IPTV o en la lista M3U que te envió tu proveedor.</p>
+</section>
+<% } %>
+
+<% if (account.maxplayer_user_id) { %>
+<section class="panel">
+  <div class="panel-head"><h2>Max Player</h2></div>
+  <table class="kv">
+    <tr><th>Usuario</th><td><code><%= account.username %></code></td></tr>
+    <tr><th>Contraseña</th><td class="td-dim">la que te dio tu proveedor</td></tr>
+  </table>
+  <p class="hint">Abre la app Max Player e inicia sesión. La lista ya está cargada.</p>
+</section>
+<% } %>
 
 <%- include('../partials/footer') %>

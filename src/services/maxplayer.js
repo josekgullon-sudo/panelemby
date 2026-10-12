@@ -1,0 +1,213 @@
+// Único punto de contacto con la API pública de Max Player.
+// Base https://api.maxplayer.tv/v3/api/public  ·  cabecera Api-Token.
+//
+// Alta de un cliente conectado a una línea XUI:
+//   POST /users          (domain_id + iptv_user + iptv_pass crean usuario y lista inicial)
+//   PUT  /users/list     (o POST /users/list si todavía no hay lista) para fijar la playlist
+//   PUT  /users/connect  solo si el usuario ya existía y no estaba asignado (409)
+// Borrado: DELETE /users/{id}
+
+const config = require('../config');
+
+class MaxPlayerError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'MaxPlayerError';
+    this.status = status || 0;
+  }
+}
+
+function hasCredentials() {
+  return !!config.maxplayerApiKey;
+}
+
+function isConfigured() {
+  return !!(config.maxplayerApiKey && config.maxplayerDomainId);
+}
+
+function assertConfigured() {
+  if (!config.maxplayerApiKey) {
+    throw new MaxPlayerError('Max Player no está configurado. Revisa MAXPLAYER_API_KEY en el .env.');
+  }
+}
+
+function assertReadyToProvision() {
+  assertConfigured();
+  if (!config.maxplayerDomainId) {
+    throw new MaxPlayerError('Falta MAXPLAYER_DOMAIN_ID: es el dominio de Max Player donde se engancha la lista XUI.');
+  }
+}
+
+async function mpRequest(method, apiPath, body) {
+  assertConfigured();
+  const url = `${config.maxplayerApiUrl}${apiPath}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        'Api-Token': config.maxplayerApiKey,
+        Accept: 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    throw new MaxPlayerError(`No se pudo conectar con Max Player: ${err.message}`, 0);
+  }
+
+  const text = await res.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (res.status === 429) {
+    const retry = res.headers.get('retry-after');
+    throw new MaxPlayerError(
+      `Max Player limitó las peticiones${retry ? `. Reintenta en ${retry} s` : ''}.`,
+      429
+    );
+  }
+  if (!res.ok) {
+    const message = (payload && payload.error) || text.slice(0, 300) || `HTTP ${res.status}`;
+    throw new MaxPlayerError(`Max Player respondió ${res.status} en ${method} ${apiPath}: ${message}`, res.status);
+  }
+  if (payload && payload.success === 0) {
+    throw new MaxPlayerError(payload.error || 'Max Player rechazó la operación', 400);
+  }
+  return payload;
+}
+
+async function getInfo() {
+  return mpRequest('GET', '/info');
+}
+
+async function listUsers({ limit = 100, afterId } = {}) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (afterId) qs.set('after_id', String(afterId));
+  return mpRequest('GET', `/users?${qs.toString()}`);
+}
+
+async function createUser(body) {
+  return mpRequest('POST', '/users', body);
+}
+
+async function deleteUser(userId) {
+  return mpRequest('DELETE', `/users/${encodeURIComponent(userId)}`);
+}
+
+async function connectUser(userEmail) {
+  return mpRequest('PUT', '/users/connect', { user_email: userEmail });
+}
+
+async function addList(body) {
+  return mpRequest('POST', '/users/list', body);
+}
+
+async function updateList(body) {
+  return mpRequest('PUT', '/users/list', body);
+}
+
+async function changePassword(userId, password) {
+  return mpRequest('PUT', '/users/password', { user_id: String(userId), password });
+}
+
+async function searchUsers(username) {
+  return mpRequest('POST', '/users/search', { username });
+}
+
+async function deleteDevices(userId) {
+  return mpRequest('DELETE', `/users/devices/${encodeURIComponent(userId)}`);
+}
+
+async function setDeviceLimit(userId, deviceLimit) {
+  return mpRequest('PUT', `/users/${encodeURIComponent(userId)}/device-limit`, {
+    device_limit: deviceLimit,
+  });
+}
+
+function listBody({ userId, domainId, iptvUsername, iptvPassword }) {
+  return {
+    user_id: String(userId),
+    domain_id: String(domainId),
+    iptv_username: iptvUsername,
+    iptv_password: iptvPassword,
+  };
+}
+
+// La lista inicial viaja en POST /users (iptv_user / iptv_pass).
+// PUT /users/list actualiza esa playlist; si aún no existe, POST /users/list la crea.
+async function attachPlaylist(userId, creds) {
+  const body = listBody({ userId, ...creds });
+  try {
+    return await updateList(body);
+  } catch (err) {
+    if (err.status === 404) return addList(body);
+    throw err;
+  }
+}
+
+async function findUserId(username) {
+  const found = await searchUsers(username);
+  const users = (found && found.users) || [];
+  const exact = users.find((user) => user.username === username);
+  return exact ? String(exact.id) : null;
+}
+
+// Crea el usuario de Max Player y deja la playlist apuntando a la línea XUI.
+// Si el usuario ya existe (reintento tras un 409), lo busca, lo conecta si hace
+// falta y vuelve a fijar la lista. No crea una segunda cuenta.
+async function provisionUser({ username, password, iptvUser, iptvPass, domainId }) {
+  assertReadyToProvision();
+  const domain = String(domainId || config.maxplayerDomainId);
+  const body = {
+    domain_id: domain,
+    iptv_user: iptvUser,
+    iptv_pass: iptvPass,
+    username,
+    user_password: password,
+  };
+  if (config.maxplayerResellerId) body.reseller_id = config.maxplayerResellerId;
+
+  let userId;
+  try {
+    const created = await createUser(body);
+    userId = created && (created.user_id || created.id);
+    if (!userId) throw new MaxPlayerError('Max Player creó el usuario pero no devolvió user_id');
+  } catch (err) {
+    if (err.status !== 409) throw err;
+    await connectUser(username).catch((connectErr) => {
+      if (connectErr.status !== 404 && connectErr.status !== 409) throw connectErr;
+    });
+    userId = await findUserId(username);
+    if (!userId) throw err;
+  }
+
+  await attachPlaylist(userId, { domainId: domain, iptvUsername: iptvUser, iptvPassword: iptvPass });
+  return { userId: String(userId) };
+}
+
+module.exports = {
+  MaxPlayerError,
+  hasCredentials,
+  isConfigured,
+  getInfo,
+  listUsers,
+  createUser,
+  deleteUser,
+  connectUser,
+  addList,
+  updateList,
+  changePassword,
+  searchUsers,
+  deleteDevices,
+  setDeviceLimit,
+  attachPlaylist,
+  provisionUser,
+};
