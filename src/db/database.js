@@ -12,11 +12,15 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
 
-// Migraciones incrementales sobre BDs ya creadas
-const planCols = db.prepare('PRAGMA table_info(plans)').all();
-if (!planCols.some((c) => c.name === 'screens')) {
-  db.exec('ALTER TABLE plans ADD COLUMN screens INTEGER NOT NULL DEFAULT 1');
+// Migraciones incrementales sobre BDs ya creadas.
+// schema.sql usa IF NOT EXISTS, así que una instalación antigua no recibe
+// columnas nuevas hasta estos ALTER.
+function ensureColumn(table, name, alterSql) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === name)) db.exec(alterSql);
 }
+
+ensureColumn('plans', 'screens', 'ALTER TABLE plans ADD COLUMN screens INTEGER NOT NULL DEFAULT 1');
 
 // Las cuentas borradas conservan la fila como historial pero liberan el nombre
 // (sufijo #del + id). Normaliza las borradas antes de este cambio.
@@ -25,10 +29,37 @@ db.exec(
 );
 
 // Contraseña cifrada reversible para poder reenviar los datos de conexión
-const accountCols = db.prepare('PRAGMA table_info(emby_accounts)').all();
-if (!accountCols.some((c) => c.name === 'password_enc')) {
-  db.exec('ALTER TABLE emby_accounts ADD COLUMN password_enc TEXT');
-}
+ensureColumn('emby_accounts', 'password_enc', 'ALTER TABLE emby_accounts ADD COLUMN password_enc TEXT');
+
+// XUI.one + Max Player. has_emby=1 en filas viejas: antes toda cuenta era Emby.
+ensureColumn('emby_accounts', 'has_emby', 'ALTER TABLE emby_accounts ADD COLUMN has_emby INTEGER NOT NULL DEFAULT 1');
+ensureColumn('emby_accounts', 'xui_line_id', 'ALTER TABLE emby_accounts ADD COLUMN xui_line_id TEXT');
+ensureColumn('emby_accounts', 'xui_package_id', 'ALTER TABLE emby_accounts ADD COLUMN xui_package_id TEXT');
+ensureColumn('emby_accounts', 'xui_package_name', 'ALTER TABLE emby_accounts ADD COLUMN xui_package_name TEXT');
+ensureColumn('emby_accounts', 'xui_bouquets', 'ALTER TABLE emby_accounts ADD COLUMN xui_bouquets TEXT');
+ensureColumn('emby_accounts', 'player_kind', 'ALTER TABLE emby_accounts ADD COLUMN player_kind TEXT');
+ensureColumn('emby_accounts', 'maxplayer_user_id', 'ALTER TABLE emby_accounts ADD COLUMN maxplayer_user_id TEXT');
+ensureColumn(
+  'emby_accounts',
+  'maxplayer_list_ok',
+  'ALTER TABLE emby_accounts ADD COLUMN maxplayer_list_ok INTEGER NOT NULL DEFAULT 0'
+);
+ensureColumn('emby_accounts', 'provision_error', 'ALTER TABLE emby_accounts ADD COLUMN provision_error TEXT');
+ensureColumn('plans', 'xui_credit_cost', 'ALTER TABLE plans ADD COLUMN xui_credit_cost INTEGER NOT NULL DEFAULT 0');
+ensureColumn(
+  'plans',
+  'maxplayer_credit_cost',
+  'ALTER TABLE plans ADD COLUMN maxplayer_credit_cost INTEGER NOT NULL DEFAULT 0'
+);
+
+// Índices de los ids externos: después de los ALTER, porque en una BD antigua
+// las columnas aún no existían cuando se ejecutó schema.sql.
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_emby_accounts_xui_line
+    ON emby_accounts(xui_line_id) WHERE xui_line_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_emby_accounts_mp_user
+    ON emby_accounts(maxplayer_user_id) WHERE maxplayer_user_id IS NOT NULL;
+`);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue
 // exactamente con los valores originales del seed (no pisa cambios manuales).

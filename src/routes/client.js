@@ -16,6 +16,7 @@ router.get('/', (req, res) => {
     plan,
     days: accounts.daysLeft(req.account.expires_at),
     embyUrl: config.embyPublicUrl,
+    xuiPublicUrl: config.xuiPublicUrl,
   });
 });
 

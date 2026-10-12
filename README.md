@@ -1,10 +1,17 @@
 # Totalflix EMBY
 
-Panel web de gestión de usuarios para Emby Server con tres roles:
+Panel web de gestión de usuarios con tres roles:
 
 - **Admin**: control total — resellers, créditos, planes, todas las cuentas, estadísticas.
-- **Reseller**: cartera de créditos, crea y renueva cuentas de Emby (solo ve las suyas).
+- **Reseller**: cartera de créditos, crea y renueva cuentas (solo ve las suyas).
 - **Cliente final**: ve su caducidad, días restantes y datos de conexión.
+
+Al dar de alta una cuenta se elige, con dos interruptores, dónde se crea:
+
+- **Emby**: el usuario de Emby, igual que hasta ahora.
+- **XUI**: una línea en XUI.one. Dentro de XUI se elige **TotalFlix** (solo la línea) o **Max Player** (la línea y, además, el usuario en la app, con la playlist ya conectada).
+
+Los dos pueden ir activados a la vez. Renovar, caducar y borrar se aplican en cada sistema donde esa cuenta exista.
 
 Stack: Node.js + Express + SQLite (better-sqlite3) + EJS. Sin build step.
 
@@ -27,16 +34,68 @@ npm run dev                 # http://localhost:3000, recarga al guardar
 | `npm start` | Arranca el panel |
 | `npm run dev` | Arranca con recarga automática |
 | `npm run create-admin -- <usuario> <contraseña>` | Crea el admin (o resetea su contraseña) |
+| `npm test` | Tests del panel con Emby, XUI y Max Player simulados |
 | `npm run test-emby` | Prueba la conexión y la API key de Emby |
+| `npm run test-xui` | Lee los paquetes de XUI (no crea líneas). Lánzalo en el servidor |
+| `npm run test-maxplayer` | Lee `/info` y una página de usuarios (no crea nada). Lánzalo en el servidor |
 | `npm run expiry` | Lanza a mano una pasada de caducidades |
+
+## Emby, XUI y Max Player
+
+En **Cuentas → Nueva cuenta** (admin y reseller) hay dos interruptores. Emby viene activado, que es el comportamiento de siempre. Si activas XUI aparecen dos opciones y el selector de paquete (sale de `get_packages`):
+
+- **TotalFlix** crea solo la línea en XUI.
+- **Max Player** crea la línea y después el usuario en Max Player, con esa línea como playlist.
+
+La fecha de caducidad la marca el plan del panel y se escribe en XUI como `exp_date`. El paquete aporta canales, si es prueba y el tope de conexiones.
+
+### Créditos
+
+- **Emby** cobra `credit_cost` del plan, como hasta ahora.
+- **XUI** cobra el precio del paquete si el admin se lo puso en Planes → Paquetes XUI. Si el paquete está vacío, cobra `xui_credit_cost` del plan (0 por defecto: no cambia lo que ya pagaban las cuentas solo Emby).
+- **Max Player** suma `maxplayer_credit_cost` del plan, encima de XUI.
+
+Si se piden varios servicios se suman. El admin no gasta saldo. Si XUI se crea y Max Player falla, la cuenta queda guardada con el id de la línea, se cobra una sola vez y el botón **Reintentar** completa lo que falte sin volver a cobrar.
+
+### Migración
+
+No hay que lanzar nada a mano. Al arrancar, el panel añade las columnas que falten:
+
+- `emby_accounts`: `has_emby`, `xui_line_id`, `xui_package_id`, `xui_package_name`, `xui_bouquets`, `player_kind` (`totalflix` o `maxplayer`), `maxplayer_user_id`, `maxplayer_list_ok`, `provision_error`
+- `plans`: `xui_credit_cost`, `maxplayer_credit_cost` (las dos a 0)
+- tabla nueva `xui_packages` (catálogo cacheado; el precio en créditos que pongas se conserva al actualizar)
+
+Las cuentas que ya existían quedan como solo Emby. Conviene copiar `data/panel.sqlite` antes de actualizar.
+
+### Qué comprobar contra las APIs reales
+
+Desde esta máquina no se llega a los paneles (la IP está filtrada). En el servidor:
+
+```bash
+npm run test-xui
+npm run test-maxplayer
+```
+
+Conviene contrastar, creando una línea de prueba y borrándola, que la API de tu XUI coincide con lo que usa `src/services/xui.js`:
+
+1. `get_packages` puede venir como array pelado o como `{ status, data }`. El cliente acepta los dos. Revisa que el id, el nombre, `is_trial`, `max_connections` y los bouquets salen bien.
+2. `create_line` usa `package`, `exp_date` (unix), `max_connections`, `is_trial`, `bouquets_selected` (JSON) y, si lo configuras, `member_id`. Si tu build espera `package_id` u otro nombre, hay que ajustarlo.
+3. Confirma que `exp_date` manda sobre la duración del paquete. Si el panel ignora `exp_date` cuando hay paquete, la fecha de XUI no coincidirá con la del plan.
+4. En `edit_line`, omitir `bouquets_selected` a veces vacía los canales. El panel reenvía los bouquets que guardó al crear la línea. Si `get_packages` no trae bouquets, no los reenviamos: comprueba que una renovación no deja la línea sin canales.
+5. `enable_line` sobre una línea ya activa, y `delete_line` / `disable_line` cuando el id ya no existe.
+6. La M3U que se copia al cliente es `{XUI_PUBLIC_URL}/get.php?username=…&password=…&type=m3u_plus&output=ts`.
+7. Max Player: `POST /users` ya manda `iptv_user` / `iptv_pass` (lista inicial) y luego `PUT /users/list` (o `POST /users/list` si responde 404). `MAXPLAYER_DOMAIN_ID` tiene que ser el dominio que apunta a tu XUI.
+8. Un reintento tras un 409 busca el usuario (`POST /users/search`) y llama a `PUT /users/connect`. Comprueba que no crea un duplicado.
+9. Max Player no tiene “desactivar usuario”. Al caducar se desactiva la línea XUI (la app deja de reproducir) y se intenta cerrar sus dispositivos. Al borrar sí se llama a `DELETE /users/{id}`.
+10. `XUI_INSECURE_TLS=1` solo relaja el certificado de XUI. No lo dejes puesto si más adelante el certificado es válido.
 
 ## Caducidades
 
 Un cron interno (`EXPIRY_CRON`, recomendado cada 30 min para que las demos por horas corten a tiempo) y una pasada extra al arrancar:
 
-1. Cuentas vencidas → `IsDisabled=true` en Emby y estado `expired`.
-2. Cuentas renovadas mientras estaban caducadas → se reactivan.
-3. Tras `DELETE_AFTER_DAYS` días caducadas (0 = nunca) → se borran de Emby.
+1. Cuentas vencidas → Emby desactivado (o vitrina), línea XUI desactivada, estado `expired`.
+2. Cuentas renovadas mientras estaban caducadas → se reactivan en Emby y en XUI.
+3. Tras `DELETE_AFTER_DAYS` días caducadas (0 = nunca) → se borran en Emby, XUI y Max Player.
 
 ## Deploy en Ubuntu (producción)
 
@@ -111,7 +170,7 @@ sudo systemctl restart panelemby
 ## Puesta en marcha (primeros pasos en el panel)
 
 1. Entra en `http://IP:3000` con el admin creado por script.
-2. **Planes** → en la primera ejecución se crea solo el catálogo completo (demo 24 h y 1/3/6/12 meses en 1 o 2 pantallas); edita costes o crea más si quieres. Las pantallas del plan se aplican en Emby como límite de reproducciones simultáneas.
+2. **Planes** → en la primera ejecución se crea solo el catálogo completo (demo 6 h y 1/3/6/12 meses en 1 o 2 pantallas); edita costes de Emby, XUI y Max Player, o crea más si quieres. En la misma página, «Actualizar desde XUI» trae los paquetes y les puedes poner un precio en créditos. Las pantallas del plan se aplican en Emby como límite de reproducciones simultáneas.
 3. **Resellers** → crea el reseller; luego "Créditos" → recárgale saldo.
-4. El reseller entra con su usuario, va a **Mis cuentas** → "Nueva cuenta": se crea el usuario en Emby con su contraseña y se le descuentan los créditos del plan.
+4. El reseller entra con su usuario, va a **Mis cuentas** → "Nueva cuenta": elige Emby, XUI o los dos. Se crea en esos sistemas y se le descuentan los créditos.
 5. El cliente final entra al panel con ese mismo usuario/contraseña y ve su caducidad y datos de conexión.

@@ -1,23 +1,9 @@
 <%- include('../partials/header', { title: 'Mis cuentas', nav: 'cuentas' }) %>
 
-<section class="panel">
-  <div class="panel-head"><h2>Nueva cuenta</h2></div>
-  <% if (plans.length === 0) { %>
-    <p class="empty">No hay planes disponibles. Contacta con el administrador.</p>
-  <% } else { %>
-  <form method="post" action="/reseller/cuentas" class="form-row">
-    <input type="text" name="username" placeholder="usuario" required aria-label="Usuario">
-    <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña">
-    <select name="plan_id" required aria-label="Plan">
-      <% plans.forEach(p => { %>
-        <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
-      <% }) %>
-    </select>
-    <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
-    <button class="btn btn-primary">Crear en Emby</button>
-  </form>
-  <% } %>
-</section>
+<%- include('../partials/create-account', {
+  formAction: '/reseller/cuentas',
+  emptyPlans: 'No hay planes disponibles. Contacta con el administrador.'
+}) %>
 
 <section class="panel">
   <div class="panel-head">
@@ -37,11 +23,12 @@
     <p class="empty"><%= q || estado ? 'Ninguna cuenta coincide con el filtro.' : 'Aún no has creado ninguna cuenta. Da de alta la primera arriba.' %></p>
   <% } else { %>
   <table>
-    <thead><tr><th>Cuenta</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <thead><tr><th>Cuenta</th><th>Servicios</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
     <tbody>
     <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
       <tr>
-        <td class="td-strong"><%= a.username %><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %></td>
+        <td class="td-strong"><%= a.username %><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %><% if (a.provision_error) { %><span class="td-note td-warn" title="<%= a.provision_error %>"><%= a.provision_error %></span><% } %></td>
+        <td><%- include('../partials/service-badges', { a: a }) %></td>
         <td class="td-dim"><%= a.plan || '—' %></td>
         <td class="td-dim"><%= a.created_at.slice(0, 10) %></td>
         <td><%= a.expires_at.slice(0, 10) %></td>
@@ -59,6 +46,11 @@
           <% } else { %><span class="badge badge-err">caducada</span><% } %>
         </td>
         <td class="actions">
+          <% if (a.provision_error || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.has_emby && !a.emby_user_id)) { %>
+            <form method="post" action="/reseller/cuentas/<%= a.id %>/reintentar" class="inline">
+              <button class="btn btn-primary btn-sm" title="<%= a.provision_error || 'Completar servicios pendientes' %>">Reintentar</button>
+            </form>
+          <% } %>
           <a class="btn btn-ghost btn-sm" href="/reseller/cuentas/<%= a.id %>/datos" title="Ver y copiar los datos de conexión">Datos</a>
           <details>
             <summary>Renovar</summary>
@@ -80,7 +72,7 @@
                   <option value="<%= p.id %>"><%= p.name %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.</option>
                 <% } }) %>
               </select>
-              <p class="hint">Solo entre planes de la misma duración; se cobra o devuelve la diferencia. No cambia la fecha.</p>
+              <p class="hint">Solo entre planes de la misma duración; se cobra o devuelve la diferencia de los servicios que ya tiene. No cambia la fecha.</p>
               <button class="btn btn-primary btn-sm">Cambiar plan</button>
             </form>
           </details>
@@ -91,9 +83,9 @@
               <button class="btn btn-sm">Cambiar contraseña</button>
             </form>
           </details>
-          <a class="btn btn-ghost btn-sm" href="/reseller/cuentas/<%= a.id %>/dispositivos">Dispositivos</a>
+          <% if (a.emby_user_id) { %><a class="btn btn-ghost btn-sm" href="/reseller/cuentas/<%= a.id %>/dispositivos">Dispositivos</a><% } %>
           <form method="post" action="/reseller/cuentas/<%= a.id %>/borrar" class="inline"
-                onsubmit="return confirm('¿Borrar <%= a.username %> de Emby definitivamente?')">
+                onsubmit="return confirm('¿Borrar <%= a.username %> en todos los servicios donde exista (Emby, XUI, Max Player)?')">
             <button class="btn btn-danger btn-sm">Borrar</button>
           </form>
         </td>

@@ -12,8 +12,9 @@ router.use(requirePanelRole('admin'));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function backWithError(req, res, err, fallback) {
-  const msg = err.name === 'BusinessError' || err.name === 'EmbyError' ? err.message : 'Error interno';
-  if (err.name !== 'BusinessError' && err.name !== 'EmbyError') console.error(err);
+  const known = accounts.isUserFacingError(err);
+  const msg = known ? err.message : 'Error interno';
+  if (!known) console.error(err);
   req.setFlash('error', msg);
   res.redirect(fallback);
 }
@@ -158,7 +159,8 @@ router.get('/creditos', (req, res) => {
 
 router.get('/planes', (req, res) => {
   const plans = db.prepare('SELECT * FROM plans ORDER BY duration_days').all();
-  res.render('admin/plans', { plans });
+  const packages = accounts.cachedXuiPackages();
+  res.render('admin/plans', { plans, packages, xuiConfigured: require('../services/xui').isConfigured() });
 });
 
 function readPlanForm(body) {
@@ -177,7 +179,11 @@ function readPlanForm(body) {
   if (!Number.isInteger(screens) || screens < 1 || screens > 10) {
     throw new accounts.BusinessError('Las pantallas deben estar entre 1 y 10');
   }
-  return { name, days, cost, screens };
+  const xuiCost = parseInt(body.xui_credit_cost, 10);
+  const maxCost = parseInt(body.maxplayer_credit_cost, 10);
+  if (!Number.isInteger(xuiCost) || xuiCost < 0) throw new accounts.BusinessError('Coste XUI inválido');
+  if (!Number.isInteger(maxCost) || maxCost < 0) throw new accounts.BusinessError('Coste Max Player inválido');
+  return { name, days, cost, screens, xuiCost, maxCost };
 }
 
 router.post('/planes', (req, res) => {
@@ -186,12 +192,10 @@ router.post('/planes', (req, res) => {
     if (db.prepare('SELECT 1 FROM plans WHERE name = ?').get(p.name)) {
       throw new accounts.BusinessError('Ya existe un plan con ese nombre');
     }
-    db.prepare('INSERT INTO plans (name, duration_days, credit_cost, screens) VALUES (?, ?, ?, ?)').run(
-      p.name,
-      p.days,
-      p.cost,
-      p.screens
-    );
+    db.prepare(
+      `INSERT INTO plans (name, duration_days, credit_cost, screens, xui_credit_cost, maxplayer_credit_cost)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(p.name, p.days, p.cost, p.screens, p.xuiCost, p.maxCost);
     req.setFlash('ok', `Plan "${p.name}" creado`);
     res.redirect('/admin/planes');
   } catch (err) {
@@ -207,8 +211,11 @@ router.post('/planes/:id/editar', (req, res) => {
     const dup = db.prepare('SELECT 1 FROM plans WHERE name = ? AND id != ?').get(p.name, req.params.id);
     if (dup) throw new accounts.BusinessError('Ya existe otro plan con ese nombre');
     const r = db
-      .prepare('UPDATE plans SET name = ?, duration_days = ?, credit_cost = ?, screens = ? WHERE id = ?')
-      .run(p.name, p.days, p.cost, p.screens, req.params.id);
+      .prepare(
+        `UPDATE plans SET name = ?, duration_days = ?, credit_cost = ?, screens = ?,
+         xui_credit_cost = ?, maxplayer_credit_cost = ? WHERE id = ?`
+      )
+      .run(p.name, p.days, p.cost, p.screens, p.xuiCost, p.maxCost, req.params.id);
     if (r.changes === 0) throw new accounts.BusinessError('Plan no encontrado');
     req.setFlash('ok', `Plan "${p.name}" actualizado`);
     res.redirect('/admin/planes');
@@ -223,9 +230,39 @@ router.post('/planes/:id/toggle', (req, res) => {
   res.redirect('/admin/planes');
 });
 
+router.post(
+  '/paquetes/sync',
+  wrap(async (req, res) => {
+    try {
+      const packages = await accounts.refreshXuiPackages();
+      req.setFlash('ok', `${packages.length} paquetes XUI actualizados. El precio en créditos que ya tuvieran se conserva.`);
+      res.redirect('/admin/planes');
+    } catch (err) {
+      backWithError(req, res, err, '/admin/planes');
+    }
+  })
+);
+
+router.post('/paquetes/coste', (req, res) => {
+  try {
+    const raw = req.body.credit_cost;
+    const cost = raw === '' || raw == null ? null : parseInt(raw, 10);
+    if (cost !== null && (!Number.isInteger(cost) || cost < 0)) {
+      throw new accounts.BusinessError('El precio del paquete tiene que ser un número de créditos, o vacío para usar el del plan');
+    }
+    accounts.setPackageCost(req.body.package_id, cost);
+    req.setFlash('ok', cost === null ? 'El paquete vuelve a usar el coste XUI del plan' : `Paquete a ${cost} créditos`);
+    res.redirect('/admin/planes');
+  } catch (err) {
+    backWithError(req, res, err, '/admin/planes');
+  }
+});
+
 // --- Cuentas de Emby (todas) ---
 
-router.get('/cuentas', (req, res) => {
+router.get(
+  '/cuentas',
+  wrap(async (req, res) => {
   const q = (req.query.q || '').trim();
   const estado = ['active', 'expired'].includes(req.query.estado) ? req.query.estado : '';
   let sql = `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
@@ -250,6 +287,7 @@ router.get('/cuentas', (req, res) => {
     .all();
   const newAccount = req.session.newAccount || null;
   delete req.session.newAccount;
+  const form = await accounts.packagesForForm();
   res.render('admin/accounts', {
     list,
     plans,
@@ -259,8 +297,14 @@ router.get('/cuentas', (req, res) => {
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,
+    packages: form.packages,
+    xuiConfigured: form.xuiConfigured,
+    maxplayerConfigured: form.maxplayerConfigured,
+    xuiNotice: form.notice,
+    formAction: '/admin/cuentas',
   });
-});
+  })
+);
 
 // Cambiar el plan de una cuenta sin tocar su fecha (corregir pantallas/plan)
 router.post(
@@ -299,6 +343,10 @@ router.get(
       .get(req.params.id);
     if (!account) {
       req.setFlash('error', 'Cuenta no encontrada');
+      return res.redirect('/admin/cuentas');
+    }
+    if (!account.emby_user_id) {
+      req.setFlash('error', 'Esta cuenta no tiene usuario en Emby');
       return res.redirect('/admin/cuentas');
     }
     try {
@@ -359,14 +407,32 @@ router.post(
         planId: parseInt(req.body.plan_id, 10),
         owner: req.user,
         notes: req.body.notes,
+        services: accounts.parseServices(req.body),
       });
-      req.session.newAccount = {
-        username: req.body.username.trim(),
-        password: req.body.password,
-        expiresAt: created.expiresAt,
-        plan: created.plan.name,
-        screens: created.plan.screens,
-      };
+      const card = accounts.connectionCard(created.id, req.user);
+      card.mode = 'created';
+      req.session.newAccount = card;
+      if (created.provisionError) req.setFlash('error', created.provisionError);
+      res.redirect('/admin/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/admin/cuentas');
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/reintentar',
+  wrap(async (req, res) => {
+    try {
+      const result = await accounts.retryProvision({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+      });
+      if (result.provisionError) req.setFlash('error', result.provisionError);
+      else req.setFlash('ok', 'Servicios pendientes creados');
+      const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
+      card.mode = 'resend';
+      req.session.newAccount = card;
       res.redirect('/admin/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');
@@ -400,7 +466,7 @@ router.post(
         newPassword: req.body.password,
         actor: req.user,
       });
-      req.setFlash('ok', 'Contraseña cambiada (en Emby y en el panel)');
+      req.setFlash('ok', 'Contraseña cambiada en el panel y en cada servicio de la cuenta');
       res.redirect('/admin/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');
@@ -413,7 +479,7 @@ router.post(
   wrap(async (req, res) => {
     try {
       await accounts.deleteAccount({ accountId: parseInt(req.params.id, 10), actor: req.user });
-      req.setFlash('ok', 'Cuenta borrada de Emby');
+      req.setFlash('ok', 'Cuenta borrada en todos los servicios donde existía');
       res.redirect('/admin/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');

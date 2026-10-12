@@ -10,8 +10,9 @@ router.use(requirePanelRole('reseller'));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function backWithError(req, res, err, fallback) {
-  const msg = err.name === 'BusinessError' || err.name === 'EmbyError' ? err.message : 'Error interno';
-  if (err.name !== 'BusinessError' && err.name !== 'EmbyError') console.error(err);
+  const known = accounts.isUserFacingError(err);
+  const msg = known ? err.message : 'Error interno';
+  if (!known) console.error(err);
   req.setFlash('error', msg);
   res.redirect(fallback);
 }
@@ -40,7 +41,9 @@ router.get('/', (req, res) => {
 
 // --- Sus cuentas ---
 
-router.get('/cuentas', (req, res) => {
+router.get(
+  '/cuentas',
+  wrap(async (req, res) => {
   const q = (req.query.q || '').trim();
   const estado = ['active', 'expired'].includes(req.query.estado) ? req.query.estado : '';
   let sql = `SELECT a.*, pl.name AS plan, pl.duration_days
@@ -60,6 +63,7 @@ router.get('/cuentas', (req, res) => {
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
   const newAccount = req.session.newAccount || null;
   delete req.session.newAccount;
+  const form = await accounts.packagesForForm();
   res.render('reseller/accounts', {
     list,
     plans,
@@ -68,8 +72,14 @@ router.get('/cuentas', (req, res) => {
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,
+    packages: form.packages,
+    xuiConfigured: form.xuiConfigured,
+    maxplayerConfigured: form.maxplayerConfigured,
+    xuiNotice: form.notice,
+    formAction: '/reseller/cuentas',
   });
-});
+  })
+);
 
 router.post(
   '/cuentas',
@@ -81,14 +91,12 @@ router.post(
         planId: parseInt(req.body.plan_id, 10),
         owner: req.user,
         notes: req.body.notes,
+        services: accounts.parseServices(req.body),
       });
-      req.session.newAccount = {
-        username: req.body.username.trim(),
-        password: req.body.password,
-        expiresAt: created.expiresAt,
-        plan: created.plan.name,
-        screens: created.plan.screens,
-      };
+      const card = accounts.connectionCard(created.id, req.user);
+      card.mode = 'created';
+      req.session.newAccount = card;
+      if (created.provisionError) req.setFlash('error', created.provisionError);
       res.redirect('/reseller/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');
@@ -121,7 +129,7 @@ router.post(
   wrap(async (req, res) => {
     try {
       await accounts.deleteAccount({ accountId: parseInt(req.params.id, 10), actor: req.user });
-      req.setFlash('ok', 'Cuenta borrada de Emby');
+      req.setFlash('ok', 'Cuenta borrada en todos los servicios donde existía');
       res.redirect('/reseller/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');
@@ -148,6 +156,10 @@ router.get(
       .get(req.params.id, req.user.id);
     if (!account) {
       req.setFlash('error', 'Cuenta no encontrada');
+      return res.redirect('/reseller/cuentas');
+    }
+    if (!account.emby_user_id) {
+      req.setFlash('error', 'Esta cuenta no tiene usuario en Emby');
       return res.redirect('/reseller/cuentas');
     }
     try {
@@ -178,6 +190,26 @@ router.post(
 );
 
 router.post(
+  '/cuentas/:id/reintentar',
+  wrap(async (req, res) => {
+    try {
+      const result = await accounts.retryProvision({
+        accountId: parseInt(req.params.id, 10),
+        actor: req.user,
+      });
+      if (result.provisionError) req.setFlash('error', result.provisionError);
+      else req.setFlash('ok', 'Servicios pendientes creados');
+      const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
+      card.mode = 'resend';
+      req.session.newAccount = card;
+      res.redirect('/reseller/cuentas');
+    } catch (err) {
+      backWithError(req, res, err, '/reseller/cuentas');
+    }
+  })
+);
+
+router.post(
   '/cuentas/:id/renovar',
   wrap(async (req, res) => {
     try {
@@ -203,7 +235,7 @@ router.post(
         newPassword: req.body.password,
         actor: req.user,
       });
-      req.setFlash('ok', 'Contraseña cambiada (en Emby y en el panel)');
+      req.setFlash('ok', 'Contraseña cambiada en el panel y en cada servicio de la cuenta');
       res.redirect('/reseller/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');

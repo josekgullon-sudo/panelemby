@@ -1,0 +1,140 @@
+<section class="panel">
+  <div class="panel-head"><h2>Nueva cuenta</h2></div>
+  <% if (plans.length === 0) { %>
+    <p class="empty"><%- emptyPlans %></p>
+  <% } else { %>
+  <form method="post" action="<%= formAction %>" class="create-form" id="create-account">
+    <div class="form-row">
+      <input type="text" name="username" placeholder="usuario" required aria-label="Usuario" autocomplete="off">
+      <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña" autocomplete="new-password">
+      <select name="plan_id" id="plan-id" required aria-label="Plan">
+        <% plans.forEach(p => { %>
+          <option value="<%= p.id %>"
+            data-emby="<%= p.credit_cost %>"
+            data-xui="<%= p.xui_credit_cost || 0 %>"
+            data-max="<%= p.maxplayer_credit_cost || 0 %>">
+            <%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant.
+          </option>
+        <% }) %>
+      </select>
+      <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
+    </div>
+
+    <div class="create-services">
+      <p class="svc-kicker">Dónde la creamos</p>
+      <div class="svc-picker">
+        <input class="svc-input" type="checkbox" id="service-emby" name="service_emby" value="1" checked>
+        <input class="svc-input" type="checkbox" id="service-xui" name="service_xui" value="1" <%= xuiConfigured ? '' : 'disabled' %>>
+
+        <label class="svc-toggle" for="service-emby">
+          <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
+          <span class="svc-copy">
+            <span class="svc-name">Emby</span>
+            <span class="svc-desc">La cuenta de siempre, en el servidor Emby</span>
+          </span>
+        </label>
+
+        <label class="svc-toggle <%= xuiConfigured ? '' : 'is-disabled' %>" for="service-xui">
+          <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
+          <span class="svc-copy">
+            <span class="svc-name">XUI</span>
+            <span class="svc-desc"><%= xuiConfigured ? 'Línea IPTV: TotalFlix o Max Player' : 'Falta XUI_API_URL y XUI_API_KEY' %></span>
+          </span>
+        </label>
+      </div>
+
+      <% if (xuiNotice) { %><p class="hint hint-warn"><%= xuiNotice %></p><% } %>
+
+      <div class="xui-extra">
+        <p class="svc-kicker">Cómo lo verá el cliente</p>
+        <div class="segment" role="radiogroup" aria-label="Tipo de línea XUI">
+          <label class="segment-opt">
+            <input type="radio" name="player_kind" value="totalflix" checked>
+            <span class="segment-card">
+              <span class="segment-title">TotalFlix</span>
+              <span class="segment-sub">Solo la línea en XUI</span>
+            </span>
+          </label>
+          <label class="segment-opt <%= maxplayerConfigured ? '' : 'is-disabled' %>">
+            <input type="radio" name="player_kind" value="maxplayer" <%= maxplayerConfigured ? '' : 'disabled' %>>
+            <span class="segment-card">
+              <span class="segment-title">Max Player</span>
+              <span class="segment-sub"><%= maxplayerConfigured ? 'Línea XUI y usuario en la app' : 'Falta la API de Max Player' %></span>
+            </span>
+          </label>
+        </div>
+
+        <div class="field xui-package">
+          <label for="xui-package">Paquete XUI</label>
+          <select id="xui-package" name="xui_package_id" aria-label="Paquete XUI">
+            <% if (packages.length === 0) { %>
+              <option value="">No hay paquetes todavía</option>
+            <% } %>
+            <% packages.forEach(pack => { %>
+              <option value="<%= pack.id %>" data-cost="<%= pack.credit_cost == null ? '' : pack.credit_cost %>">
+                <%= pack.package_name %><%= pack.is_trial ? ' · prueba' : '' %><%= pack.max_connections ? ' · ' + pack.max_connections + ' conex.' : '' %><%= pack.credit_cost == null ? '' : ' · ' + pack.credit_cost + ' cr.' %>
+              </option>
+            <% }) %>
+          </select>
+          <p class="hint">La fecha la marca el plan. El paquete pone los canales y las conexiones. Si el paquete no tiene precio propio, se usa el coste XUI del plan.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="create-foot">
+      <p class="cost-line" id="cost-line" aria-live="polite"></p>
+      <button class="btn btn-primary" type="submit">Crear cuenta</button>
+    </div>
+  </form>
+  <% } %>
+</section>
+<script>
+(function () {
+  var form = document.getElementById('create-account');
+  if (!form) return;
+  var emby = document.getElementById('service-emby');
+  var xui = document.getElementById('service-xui');
+  var plan = document.getElementById('plan-id');
+  var pack = document.getElementById('xui-package');
+  var line = document.getElementById('cost-line');
+  function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+  function selectedPlan() { return plan.options[plan.selectedIndex]; }
+  function player() {
+    var picked = form.querySelector('input[name="player_kind"]:checked');
+    return picked ? picked.value : 'totalflix';
+  }
+  function paint() {
+    var p = selectedPlan();
+    var parts = [];
+    var total = 0;
+    if (emby.checked) {
+      var e = num(p.getAttribute('data-emby'));
+      total += e;
+      parts.push('Emby ' + e);
+    }
+    if (xui.checked) {
+      var custom = pack && pack.selectedOptions[0] ? pack.selectedOptions[0].getAttribute('data-cost') : '';
+      var x = custom === '' || custom == null ? num(p.getAttribute('data-xui')) : num(custom);
+      total += x;
+      parts.push('XUI ' + x);
+      if (player() === 'maxplayer') {
+        var m = num(p.getAttribute('data-max'));
+        total += m;
+        parts.push('Max Player ' + m);
+      }
+    }
+    var who = total === 1 ? 'crédito' : 'créditos';
+    line.textContent = parts.length
+      ? 'Coste: ' + total + ' ' + who + ' (' + parts.join(' + ') + '). El admin no gasta saldo; al reseller se le descuenta.'
+      : 'Activa Emby, XUI o los dos.';
+  }
+  form.addEventListener('change', paint);
+  form.addEventListener('submit', function (ev) {
+    if (!emby.checked && !xui.checked) {
+      ev.preventDefault();
+      line.textContent = 'Activa Emby, XUI o los dos.';
+    }
+  });
+  paint();
+})();
+</script>

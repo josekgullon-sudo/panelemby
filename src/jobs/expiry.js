@@ -1,15 +1,15 @@
-// Proceso diario de caducidades. Tres pasadas:
-//   1. Cuentas activas con fecha vencida  -> IsDisabled=true en Emby + status 'expired'
-//   2. Cuentas 'expired' con fecha futura -> renovadas por otra vía; reactivar (red de seguridad)
-//   3. Cuentas 'expired' desde hace más de DELETE_AFTER_DAYS días -> borrar de Emby (si > 0)
+// Proceso de caducidades. Tres pasadas, en cada sistema donde la cuenta exista:
+//   1. Activas vencidas -> Emby desactivado (o vitrina), línea XUI desactivada, estado 'expired'
+//   2. 'expired' con fecha futura -> reactivar Emby y la línea XUI
+//   3. 'expired' desde hace más de DELETE_AFTER_DAYS días -> borrar en Emby, XUI y Max Player (si > 0)
+// Max Player no tiene "desactivar": al caducar se corta la línea XUI, que es la lista.
 // Se ejecuta con el cron configurado y también una vez al arrancar el servidor
 // (por si estuvo apagado a la hora del cron).
 
 const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
-const emby = require('../services/emby');
-const { markDeleted, expiredPolicyPatch, restoredPolicyPatch } = require('../services/accounts');
+const { deleteEverywhere, expireRemotes, restoreRemotes } = require('../services/accounts');
 
 async function run() {
   const started = Date.now();
@@ -24,7 +24,7 @@ async function run() {
     .all();
   for (const account of toExpire) {
     try {
-      await emby.updatePolicy(account.emby_user_id, await expiredPolicyPatch());
+      await expireRemotes(account);
       db.prepare("UPDATE emby_accounts SET status = 'expired' WHERE id = ?").run(account.id);
       disabled++;
     } catch (err) {
@@ -39,7 +39,7 @@ async function run() {
     .all();
   for (const account of toReactivate) {
     try {
-      await emby.updatePolicy(account.emby_user_id, await restoredPolicyPatch());
+      await restoreRemotes(account);
       db.prepare("UPDATE emby_accounts SET status = 'active' WHERE id = ?").run(account.id);
       reenabled++;
     } catch (err) {
@@ -58,10 +58,7 @@ async function run() {
       .all(`-${config.deleteAfterDays} days`);
     for (const account of toDelete) {
       try {
-        await emby.deleteUser(account.emby_user_id).catch((err) => {
-          if (err.status !== 404) throw err; // si Emby ya no la tiene, seguimos
-        });
-        markDeleted(account.id);
+        await deleteEverywhere(account);
         deleted++;
       } catch (err) {
         errors++;
