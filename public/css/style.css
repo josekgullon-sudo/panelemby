@@ -470,6 +470,19 @@ select { cursor: pointer; }
 }
 .flash-ok { background: var(--green-glow); color: var(--green); border-color: rgba(63, 212, 127, 0.25); }
 .flash-error { background: var(--red-glow); color: var(--red); border-color: rgba(240, 84, 92, 0.3); word-break: break-word; }
+.sync-live {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sync-live.is-error { color: var(--red); border-color: rgba(240, 84, 92, 0.3); }
+.sync-live p { margin: 0; }
 
 /* ---------- Login ---------- */
 

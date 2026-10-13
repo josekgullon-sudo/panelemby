@@ -30,9 +30,45 @@
       <button class="btn">Filtrar</button>
     </form>
     <form method="post" action="/admin/cuentas/sincronizar-xui" class="inline" onsubmit="return confirm('¿Traer todas las líneas de XUI? No se cobran créditos ni se duplican cuentas.');">
-      <button class="btn">Sincronizar XUI</button>
+      <button class="btn" <%= syncJob && syncJob.running ? 'disabled' : '' %>>Sincronizar XUI</button>
     </form>
   </div>
+
+  <% if (syncJob && (syncJob.running || syncJob.finishedAt)) {
+       const syncText = syncJob.running
+         ? (syncJob.phase === 'maxplayer'
+           ? 'Consultando Max Player…'
+           : syncJob.phase === 'saving'
+             ? ('Guardando en el panel… ' + syncJob.found + ' líneas.')
+             : ('Leyendo XUI… id ' + syncJob.scannedId + ', encontradas ' + syncJob.found + '.'))
+         : (syncJob.error || syncJob.text);
+  %>
+  <div id="sync-live" class="sync-live<%= syncJob.phase === 'error' ? ' is-error' : '' %>" data-running="<%= syncJob.running ? '1' : '0' %>">
+    <p id="sync-live-text"><%= syncText %></p>
+  </div>
+  <script>
+    (function () {
+      var box = document.getElementById('sync-live');
+      if (!box || box.getAttribute('data-running') !== '1') return;
+      var text = document.getElementById('sync-live-text');
+      var timer = setInterval(function () {
+        fetch('/admin/cuentas/sincronizar-xui/estado', { headers: { Accept: 'application/json' } })
+          .then(function (res) { return res.json(); })
+          .then(function (job) {
+            if (job.running) {
+              if (job.phase === 'maxplayer') text.textContent = 'Consultando Max Player…';
+              else if (job.phase === 'saving') text.textContent = 'Guardando en el panel… ' + (job.found || 0) + ' líneas.';
+              else text.textContent = 'Leyendo XUI… id ' + (job.scannedId || 0) + ', encontradas ' + (job.found || 0) + '.';
+              return;
+            }
+            clearInterval(timer);
+            location.reload();
+          })
+          .catch(function () {});
+      }, 2000);
+    })();
+  </script>
+  <% } %>
 
   <% if (list.length === 0) { %>
     <p class="empty"><%= q || estado || servicio || dominio ? 'Ninguna cuenta coincide con el filtro.' : 'No hay cuentas todavía. Crea la primera arriba.' %></p>

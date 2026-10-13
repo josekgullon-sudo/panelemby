@@ -169,7 +169,11 @@ function parseBody(text) {
 }
 
 function looksMissing(message) {
-  return /not found|no exist|does not exist|invalid id|unknown line|no line/i.test(String(message || ''));
+  const text = String(message || '').trim();
+  // Este XUI responde solo {"status":"STATUS_FAILURE"} cuando el id no existe.
+  // Un cuerpo vacío (503 de nginx) no es un id ausente.
+  if (text === 'STATUS_FAILURE') return true;
+  return /not found|no exist|does not exist|invalid id|unknown line|no line/i.test(text);
 }
 
 function unwrap(payload, action) {
@@ -180,9 +184,8 @@ function unwrap(payload, action) {
     const ok = status === 'STATUS_SUCCESS' || status.toLowerCase() === 'success';
     if (!ok) {
       const message = payload.error || payload.message || payload.msg || status;
-      const err = new XuiError(`XUI ${action}: ${message}`);
-      if (looksMissing(message)) err.status = 404;
-      throw err;
+      const missing = looksMissing(message);
+      throw new XuiError(`XUI ${action}: ${message}`, missing ? 404 : 400);
     }
   }
   if (payload.data !== undefined) return payload.data;
@@ -277,10 +280,43 @@ async function getLine(id) {
   return request('get_line', { id });
 }
 
-// Este XUI responde null a get_lines. Se recorren los ids con get_line.
-const SCAN_CONCURRENCY = 10;
-const SCAN_MISS_STREAK = 250;
-const SCAN_MAX_ID = 100000;
+// Reintentos solo de lectura. create_line / edit_line no se repiten: un 503
+// podría significar que la línea ya se aplicó.
+const SCAN_RETRY_MS = [300, 900, 2700, 8000];
+let scanWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function setScanWait(fn) {
+  scanWait = typeof fn === 'function' ? fn : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryable(err) {
+  if (!err || err.status === 404) return false;
+  if (!err.status || err.status >= 500) return true;
+  return /timeout|timed out|ECONNRESET|EAI_AGAIN|socket/i.test(err.message || '');
+}
+
+async function readLine(id) {
+  const attempts = SCAN_RETRY_MS.length + 1;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await getLine(id);
+    } catch (err) {
+      if (err && err.status === 404) throw err;
+      const again = isRetryable(err) && i < attempts - 1;
+      if (!again) {
+        const tried = i + 1;
+        const wrapped = new XuiError(
+          `La lectura de la línea ${id} falló tras ${tried} intento${tried === 1 ? '' : 's'} (${err && err.message ? err.message : err}). La importación se detiene para no saltarse líneas.`,
+          (err && err.status) || 0
+        );
+        wrapped.lineId = String(id);
+        throw wrapped;
+      }
+      await scanWait(SCAN_RETRY_MS[i]);
+    }
+  }
+  return null;
+}
 
 function lineFromPayload(raw) {
   if (raw == null || raw === '') return null;
@@ -291,7 +327,11 @@ function lineFromPayload(raw) {
   return line;
 }
 
-async function scanLines({ concurrency = SCAN_CONCURRENCY, missStreak = SCAN_MISS_STREAK, maxId = SCAN_MAX_ID } = {}) {
+async function scanLines(options = {}) {
+  const concurrency = options.concurrency || config.xuiScanConcurrency;
+  const missStreak = options.missStreak || config.xuiScanMissGap;
+  const maxId = options.maxId || config.xuiScanMaxId;
+  const onProgress = options.onProgress;
   const lines = [];
   let nextId = 1;
   let misses = 0;
@@ -305,7 +345,7 @@ async function scanLines({ concurrency = SCAN_CONCURRENCY, missStreak = SCAN_MIS
     }
     const results = await Promise.all(ids.map(async (id) => {
       try {
-        return { raw: await getLine(id) };
+        return { raw: await readLine(id) };
       } catch (err) {
         if (err && err.status === 404) return { raw: null };
         throw err;
@@ -320,6 +360,9 @@ async function scanLines({ concurrency = SCAN_CONCURRENCY, missStreak = SCAN_MIS
         misses = 0;
         lines.push(line);
       }
+    }
+    if (typeof onProgress === 'function') {
+      await onProgress({ scannedId: ids[ids.length - 1], found: lines.length });
     }
   }
   return lines;
@@ -382,7 +425,8 @@ function normalizeLine(raw) {
 // get_lines puede devolver el listado entero o un sobre con total.
 // Si declara un total mayor que la página, se pide el resto con start/limit.
 // En este XUI get_lines (y get_users) devuelve null: entonces se pide get_line
-// por id, de 10 en 10, y se para tras una racha larga de ids vacíos.
+// por id, de pocos en pocos, y se para tras una racha larga de ids vacíos
+// o al llegar al id máximo. Un fallo de red no cuenta como id vacío.
 async function getLines(options = {}) {
   const first = await request('get_lines');
   const page = lineList(first).map(normalizeLine).filter((line) => line.id && line.username);
@@ -435,4 +479,5 @@ module.exports = {
   disableLine,
   normalizePackage,
   setTransport,
+  setScanWait,
 };

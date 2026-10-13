@@ -4,7 +4,13 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
 const db = require('../src/db/database');
-const { syncXuiLines } = require('../src/services/xuiSync');
+const {
+  syncXuiLines,
+  formatSyncReport,
+  startSyncInBackground,
+  jobSnapshot,
+  setSyncRunner,
+} = require('../src/services/xuiSync');
 const config = require('../src/config');
 
 const hash = bcrypt.hashSync('secret', 4);
@@ -49,11 +55,36 @@ after(() => db.close());
 
 test('la sincronización no duplica, no cobra y distingue Max Player', async () => {
   const beforeTx = db.prepare('SELECT COUNT(*) n FROM credit_transactions').get().n;
+  const preview = await syncXuiLines({ dryRun: true, xui, maxplayer });
+  assert.equal(preview.dryRun, true);
+  assert.equal(preview.created, 3);
+  assert.equal(preview.updated, 1);
+  assert.equal(preview.conflicts, 1);
+  assert.equal(preview.maxplayer, 1);
+  assert.equal(preview.totalflix, 3);
+  assert.equal(preview.active, 1);
+  assert.equal(preview.expired, 3);
+  assert.equal(preview.owners.reventa, 2);
+  assert.equal(preview.owners.admin, 2);
+  assert.equal(preview.domains.PATO, 1);
+  assert.equal(preview.domains['sin dominio'], 3);
+  assert.deepEqual(preview.errors, []);
+  const report = formatSyncReport(preview);
+  assert.match(report, /reventa/);
+  assert.match(report, /admin/);
+  assert.match(report, /Simulación/);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM emby_accounts WHERE username = 'nuevo'").get().n, 0);
+
   const first = await syncXuiLines({ xui, maxplayer });
   assert.equal(first.created, 3);
   assert.equal(first.updated, 1);
   assert.equal(first.conflicts, 1);
   assert.equal(first.maxplayer, 1);
+  assert.equal(first.totalflix, 3);
+  assert.equal(first.active, 1);
+  assert.equal(first.expired, 3);
+  assert.equal(first.owners.reventa, 2);
+  assert.equal(first.owners.admin, 2);
   assert.equal(searches, 0);
   const nuevo = db.prepare("SELECT * FROM emby_accounts WHERE username = 'nuevo'").get();
   assert.equal(nuevo.owner_id, reseller.id);
@@ -102,4 +133,89 @@ test('un reseller con varios member_id se queda las líneas 3 y 10', async () =>
   assert.equal(db.prepare("SELECT owner_id FROM emby_accounts WHERE username = 'de.diez'").get().owner_id, milu.id);
   const admin = db.prepare("SELECT id FROM panel_users WHERE username = 'admin'").get();
   assert.equal(db.prepare("SELECT owner_id FROM emby_accounts WHERE username = 'de.otro'").get().owner_id, admin.id);
+});
+
+test('el informe separa CISNE, otro servidor y un error de guardado', async () => {
+  const preview = await syncXuiLines({
+    dryRun: true,
+    xui: {
+      getLines: async () => [
+        { id: '80', username: 'cisne.user', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '', enabled: true, package_id: '' },
+        { id: '81', username: 'otro.srv', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '', enabled: true, package_id: '' },
+      ],
+      parseExpToDate: () => new Date('2030-01-01T00:00:00Z'),
+    },
+    maxplayer: {
+      listAllUsers: async () => [
+        { id: '9', lists: [{ domain_id: config.maxplayerDomainCisneId, iptv_info: { username: 'cisne.user' } }] },
+        { id: '10', lists: [{ domain_id: '999', iptv_info: { username: 'otro.srv' } }] },
+      ],
+    },
+  });
+  assert.equal(preview.domains.CISNE, 1);
+  assert.equal(preview.domains['otro servidor'], 1);
+  assert.equal(preview.active, 2);
+  assert.match(formatSyncReport(preview), /CISNE/);
+
+  db.prepare(
+    `INSERT INTO emby_accounts (username, password_hash, owner_id, plan_id, expires_at, status, has_emby)
+     VALUES ('fantasma', ?, 1, 1, '2030-01-01 00:00:00', 'deleted', 0)`
+  ).run(hash);
+  const saved = await syncXuiLines({
+    xui: {
+      getLines: async () => [
+        { id: '70', username: 'fantasma', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '', enabled: true, package_id: '' },
+        { id: '71', username: 'sigue', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '', enabled: true, package_id: '' },
+      ],
+      parseExpToDate: () => new Date('2030-01-01T00:00:00Z'),
+    },
+    maxplayer: { listAllUsers: async () => [] },
+  });
+  assert.equal(saved.errors.length, 1);
+  assert.equal(saved.errors[0].username, 'fantasma');
+  assert.equal(saved.created, 1);
+  assert.ok(db.prepare("SELECT id FROM emby_accounts WHERE username = 'sigue' AND status != 'deleted'").get());
+});
+
+test('la sincronización del admin arranca en segundo plano y publica el avance', async () => {
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  setSyncRunner(async ({ onProgress }) => {
+    await onProgress({ phase: 'xui', scannedId: 12, found: 3 });
+    await pending;
+    return {
+      lines: 3, created: 1, updated: 0, conflicts: 0, maxplayer: 0, totalflix: 1,
+      active: 1, expired: 0, owners: { admin: 1 }, domains: {}, errors: [], dryRun: false,
+    };
+  });
+  try {
+    assert.equal(startSyncInBackground().started, true);
+    assert.equal(startSyncInBackground().started, false);
+    for (let i = 0; i < 10 && jobSnapshot().scannedId !== 12; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(jobSnapshot().running, true);
+    assert.equal(jobSnapshot().phase, 'xui');
+    assert.equal(jobSnapshot().found, 3);
+    release();
+    for (let i = 0; i < 10 && jobSnapshot().phase !== 'done'; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const done = jobSnapshot();
+    assert.equal(done.running, false);
+    assert.equal(done.phase, 'done');
+    assert.equal(done.summary.created, 1);
+    assert.match(done.text, /admin/);
+  } finally {
+    release();
+    setSyncRunner(null);
+  }
+
+  const view = require('fs').readFileSync(require('path').join(__dirname, '../src/views/admin/accounts.ejs'), 'utf8');
+  const route = require('fs').readFileSync(require('path').join(__dirname, '../src/routes/admin.js'), 'utf8');
+  assert.match(view, /sincronizar-xui\/estado/);
+  assert.match(view, /data-running/);
+  assert.match(view, /location\.reload/);
+  assert.match(route, /startSyncInBackground/);
+  assert.doesNotMatch(route, /await syncXuiLines/);
 });
