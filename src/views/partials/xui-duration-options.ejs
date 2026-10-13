@@ -1,0 +1,13 @@
+<% if (!packages.length) { %>
+  <option value="">No hay paquetes todavía</option>
+<% } %>
+<% packages.forEach(function (pack) { const meta = xuiOptionMeta(pack); %>
+  <option value="<%= pack.id %>"
+    data-days="<%= meta.days == null ? '' : meta.days %>"
+    data-fallback-days="<%= meta.fallbackDays == null ? '' : meta.fallbackDays %>"
+    data-cost="<%= pack.credit_cost == null ? '' : pack.credit_cost %>"
+    data-fallback-cost="<%= meta.fallbackCost %>"
+    data-max="<%= meta.maxCost %>">
+    <%= pack.package_name %><% if (meta.days != null) { %> · <%= formatDuration(meta.days) %><% } %><% if (pack.max_connections) { %> · <%= pack.max_connections %> conex.<% } %><% if (pack.credit_cost != null) { %> · <%= pack.credit_cost %> cr.<% } %><% if (pack.is_trial) { %> · prueba<% } %>
+  </option>
+<% }) %>

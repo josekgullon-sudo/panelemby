@@ -951,6 +951,7 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .svc-picker:has(#service-xui:checked) label[for="service-xui"] .knob { transform: translateX(20px); }
 
 .create-services .svc-panel { display: none; }
+.svc-panel select { width: 100%; max-width: 100%; }
 .create-services:has(#service-emby:checked) .emby-extra,
 .create-services:has(#service-xui:checked) .xui-extra {
   display: flex;

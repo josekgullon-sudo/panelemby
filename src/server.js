@@ -11,6 +11,7 @@ const app = express();
 // Disponible en todas las vistas EJS
 const accountsApi = require('./services/accounts');
 app.locals.formatDuration = accountsApi.formatDuration;
+app.locals.xuiOptionMeta = accountsApi.xuiOptionMeta;
 app.locals.domainLabel = accountsApi.domainLabel;
 app.locals.nextDomainLabel = accountsApi.nextDomainLabel;
 app.locals.formatClientDate = accountsApi.formatClientDate;

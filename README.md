@@ -45,7 +45,7 @@ npm run dev                 # http://localhost:3000, recarga al guardar
 
 ## Emby, XUI y Max Player
 
-En **Cuentas → Nueva cuenta** (admin y reseller) el usuario y la contraseña van arriba. Debajo, dos interruptores. Cada servicio solo se muestra si su interruptor está encendido: Emby (plan, duración y fecha de caducidad) y XUI (paquete, TotalFlix o Max Player, duración y su propia fecha). Emby viene activado. Si activas XUI:
+En **Cuentas → Nueva cuenta** (admin y reseller) el usuario y la contraseña van arriba. Debajo, dos interruptores. Cada bloque, con su duración y su fecha de caducidad, solo se muestra si su interruptor está encendido. Emby tiene **Duración Emby** (el plan). XUI tiene TotalFlix o Max Player y un solo selector **Duración XUI**: cada opción es un paquete, y ese paquete marca la duración, las conexiones, el coste y la caducidad. Si el paquete no trae horas, se usa la duración de Emby cuando también está activo, y si no, 30 días. Emby viene activado. Si activas XUI:
 
 - **TotalFlix** crea solo la línea en XUI.
 - **Max Player** crea la línea y después el usuario en Max Player, con esa línea como playlist.
