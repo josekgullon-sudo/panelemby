@@ -1542,9 +1542,10 @@ function accountPageHref(base, state, page) {
   if (state.dominio) params.set('dominio', state.dominio);
   if (state.tipo) params.set('tipo', state.tipo);
   if (state.reseller) params.set('reseller', String(state.reseller));
-  if (state.sort && state.sort !== 'activas') params.set('orden', state.sort);
+  if (state.sort && state.sort !== 'creada') params.set('orden', state.sort);
   if (state.pageSize !== 50) params.set('tam', String(state.pageSize));
-  if (state.dir !== 'asc') params.set('dir', state.dir);
+  const defaultDir = state.sort === 'creada' ? 'desc' : 'asc';
+  if (state.dir !== defaultDir) params.set('dir', state.dir);
   if (page > 1) params.set('pagina', String(page));
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
@@ -1558,9 +1559,11 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   const estado = ['active', 'expired'].includes(src.estado) ? src.estado : '';
   const filters = accountListFilters(src);
   const pageSize = PAGE_SIZES.includes(parseInt(src.tam, 10)) ? parseInt(src.tam, 10) : 50;
-  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'activas';
+  let sort = src.orden === 'activas' || Object.prototype.hasOwnProperty.call(SORTS, src.orden)
+    ? src.orden
+    : 'creada';
   if (ownerId && sort === 'reseller') sort = 'vence';
-  let dir = src.dir === 'desc' ? 'desc' : 'asc';
+  let dir = src.dir === 'asc' || src.dir === 'desc' ? src.dir : (sort === 'creada' ? 'desc' : 'asc');
   if (sort === 'activas') dir = 'asc';
   let reseller = '';
   if (!ownerId) {
@@ -1606,7 +1609,7 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   if (page > pages) page = pages;
   const offset = (page - 1) * pageSize;
   const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
-  // Sin orden explícito, las caducadas (fecha más vieja) no ocupan la primera página.
+  // Sin orden explícito: la cuenta creada más reciente va primero.
   const nullsLast = 'CASE WHEN a.expires_at IS NULL THEN 1 ELSE 0 END';
   const orderBy = sort === 'activas'
     ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, ${nullsLast}, a.expires_at ASC, a.id ASC`
