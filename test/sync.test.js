@@ -34,12 +34,15 @@ const xui = {
   getLines: async () => lines,
   parseExpToDate: (value) => new Date('2026-08-01T10:00:00Z'),
 };
+let searches = 0;
 const maxplayer = {
   listAllUsers: async () => [
     { id: '501', username: 'otro', lists: [{ domain_id: config.maxplayerDomainPatoId, iptv_info: { username: 'en.app' } }] },
   ],
-  searchAll: async (username) => (username === 'buscado' ? [{ id: '900', username: 'buscado' }] : []),
-  listCustomerPlaylists: async () => [{ domain_id: config.maxplayerDomainCisneId }],
+  searchAll: async () => {
+    searches += 1;
+    return [];
+  },
 };
 
 after(() => db.close());
@@ -50,7 +53,8 @@ test('la sincronización no duplica, no cobra y distingue Max Player', async () 
   assert.equal(first.created, 3);
   assert.equal(first.updated, 1);
   assert.equal(first.conflicts, 1);
-  assert.equal(first.maxplayer, 2);
+  assert.equal(first.maxplayer, 1);
+  assert.equal(searches, 0);
   const nuevo = db.prepare("SELECT * FROM emby_accounts WHERE username = 'nuevo'").get();
   assert.equal(nuevo.owner_id, reseller.id);
   assert.equal(nuevo.has_emby, 0);
@@ -66,12 +70,36 @@ test('la sincronización no duplica, no cobra y distingue Max Player', async () 
   assert.equal(emby.xui_line_id, '12');
   assert.equal(emby.xui_package_id, '1');
   const buscado = db.prepare("SELECT * FROM emby_accounts WHERE username = 'buscado'").get();
-  assert.equal(buscado.maxplayer_user_id, '900');
-  assert.equal(buscado.maxplayer_domain_id, config.maxplayerDomainCisneId);
+  assert.equal(buscado.player_kind, 'totalflix');
+  assert.equal(buscado.maxplayer_user_id, null);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM credit_transactions').get().n, beforeTx);
 
   const second = await syncXuiLines({ xui, maxplayer });
   assert.equal(second.created, 0);
   assert.equal(second.updated, 4);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM emby_accounts WHERE username = 'nuevo'").get().n, 1);
+  assert.equal(searches, 0);
+});
+
+test('un reseller con varios member_id se queda las líneas 3 y 10', async () => {
+  const { normalizeMemberIds } = require('../src/services/xuiSync');
+  assert.deepEqual(normalizeMemberIds('3, 10'), ['3', '10']);
+  assert.throws(() => normalizeMemberIds('3, abc'), /números/);
+  db.prepare(
+    "INSERT INTO panel_users (username, password_hash, role, credits, xui_member_id) VALUES ('milu', ?, 'reseller', 10, '3,10')"
+  ).run(hash);
+  const milu = db.prepare("SELECT id FROM panel_users WHERE username = 'milu'").get();
+  const extra = [
+    { id: '30', username: 'de.tres', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '3', enabled: true, package_id: '' },
+    { id: '31', username: 'de.diez', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '10', enabled: true, package_id: '' },
+    { id: '32', username: 'de.otro', password: 'abc', exp_date: '2030-01-01 12:00', member_id: '99', enabled: true, package_id: '' },
+  ];
+  await syncXuiLines({
+    xui: { getLines: async () => extra, parseExpToDate: () => new Date('2030-01-01T00:00:00Z') },
+    maxplayer: { listAllUsers: async () => [], searchAll: async () => { throw new Error('no buscar'); } },
+  });
+  assert.equal(db.prepare("SELECT owner_id FROM emby_accounts WHERE username = 'de.tres'").get().owner_id, milu.id);
+  assert.equal(db.prepare("SELECT owner_id FROM emby_accounts WHERE username = 'de.diez'").get().owner_id, milu.id);
+  const admin = db.prepare("SELECT id FROM panel_users WHERE username = 'admin'").get();
+  assert.equal(db.prepare("SELECT owner_id FROM emby_accounts WHERE username = 'de.otro'").get().owner_id, admin.id);
 });

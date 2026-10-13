@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const accounts = require('../services/accounts');
-const { syncXuiLines } = require('../services/xuiSync');
+const { syncXuiLines, memberIds, normalizeMemberIds } = require('../services/xuiSync');
 const { requirePanelRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -597,16 +597,21 @@ router.post(
 
 router.post('/resellers/:id/xui', (req, res) => {
   try {
-    const member = String(req.body.xui_member_id || '').trim();
     const id = parseInt(req.params.id, 10);
-    if (member && db.prepare('SELECT id FROM panel_users WHERE xui_member_id = ? AND id != ?').get(member, id)) {
-      throw new accounts.BusinessError('Ese member_id ya está asignado a otro reseller');
+    const ids = normalizeMemberIds(req.body.xui_member_id);
+    const others = db
+      .prepare("SELECT id, username, xui_member_id FROM panel_users WHERE role = 'reseller' AND id != ? AND xui_member_id IS NOT NULL")
+      .all(id);
+    for (const row of others) {
+      const clash = ids.find((memberId) => memberIds(row.xui_member_id).includes(memberId));
+      if (clash) throw new accounts.BusinessError(`El member_id ${clash} ya está asignado a ${row.username}`);
     }
+    const stored = ids.length ? ids.join(',') : null;
     const updated = db
       .prepare("UPDATE panel_users SET xui_member_id = ? WHERE id = ? AND role = 'reseller'")
-      .run(member || null, id);
+      .run(stored, id);
     if (updated.changes === 0) throw new accounts.BusinessError('Reseller no encontrado');
-    req.setFlash('ok', member ? 'member_id de XUI guardado' : 'member_id de XUI quitado');
+    req.setFlash('ok', stored ? 'member_id de XUI guardado' : 'member_id de XUI quitado');
     res.redirect('/admin/resellers');
   } catch (err) {
     backWithError(req, res, err, '/admin/resellers');

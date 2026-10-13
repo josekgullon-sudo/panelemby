@@ -40,33 +40,34 @@ async function indexPlayers(maxplayer) {
   return map;
 }
 
-async function findPlayer(maxplayer, index, username) {
+function findPlayer(index, username) {
   const key = String(username || '').trim().toLowerCase();
   if (!key) return null;
-  if (index.has(key)) return index.get(key);
-  if (!maxplayer || !maxplayer.searchAll) return null;
-  const found = await maxplayer.searchAll(username);
-  const exact = found.find((user) => String(user.username || '').trim().toLowerCase() === key);
-  if (!exact) return null;
-  let domainId = '';
-  if (maxplayer.listCustomerPlaylists) {
-    const lists = await maxplayer.listCustomerPlaylists(exact.id);
-    const hit = (lists || []).find((list) => list.domain_id);
-    if (hit) domainId = String(hit.domain_id);
+  return index.get(key) || null;
+}
+
+function memberIds(value) {
+  return [...new Set(String(value || '').split(/[,;\s]+/).map((part) => part.trim()).filter(Boolean))];
+}
+
+function normalizeMemberIds(text) {
+  const ids = memberIds(text);
+  if (ids.some((id) => !/^\d+$/.test(id))) {
+    const err = new Error('Los member_id de XUI son números separados por comas');
+    err.name = 'BusinessError';
+    throw err;
   }
-  const entry = { id: String(exact.id), domainId };
-  index.set(key, entry);
-  return entry;
+  return ids;
 }
 
 function ownerFor(memberId, adminId) {
-  if (memberId) {
-    const reseller = db
-      .prepare("SELECT id FROM panel_users WHERE role = 'reseller' AND is_active = 1 AND xui_member_id = ?")
-      .get(String(memberId));
-    if (reseller) return reseller.id;
-  }
-  return adminId;
+  const want = String(memberId || '').trim();
+  if (!want) return adminId;
+  const resellers = db
+    .prepare("SELECT id, xui_member_id FROM panel_users WHERE role = 'reseller' AND is_active = 1 AND xui_member_id IS NOT NULL")
+    .all();
+  const hit = resellers.find((row) => memberIds(row.xui_member_id).includes(want));
+  return hit ? hit.id : adminId;
 }
 
 function when(line, parseExpToDate) {
@@ -131,7 +132,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer } = {}) {
     const row = byId || byName;
     let player = null;
     if (!indexError) {
-      player = await findPlayer(M, index, line.username);
+      player = findPlayer(index, line.username);
     } else if (row && row.maxplayer_user_id) {
       player = { id: row.maxplayer_user_id, domainId: row.maxplayer_domain_id || '' };
     }
@@ -214,4 +215,4 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer } = {}) {
   return summary;
 }
 
-module.exports = { syncXuiLines };
+module.exports = { syncXuiLines, memberIds, normalizeMemberIds };

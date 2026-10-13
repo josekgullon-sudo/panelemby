@@ -418,6 +418,7 @@ test('ampliar XUI no mueve la fecha de Emby y reparar cambia de servidor', async
     maxplayer: {
       deleteAllDevices: async (id) => calls.push(['mp.wipe', id]),
       attachPlaylist: async (id, body) => calls.push(['mp.list', id, body.domainId]),
+      replacePlaylist: async (id, body) => calls.push(['mp.replace', id, body.domainId]),
     },
   });
   const created = await accounts.createAccount({
@@ -444,6 +445,8 @@ test('ampliar XUI no mueve la fecha de Emby y reparar cambia de servidor', async
   const repaired = await accounts.repairMaxPlayer({ accountId: created.id, actor: actor() });
   assert.equal(repaired.toLabel, 'CISNE');
   assert.ok(calls.some((c) => c[0] === 'mp.wipe'));
+  assert.ok(calls.some((c) => c[0] === 'mp.replace' && c[2] === require('../src/config').maxplayerDomainCisneId));
+  assert.equal(calls.some((c) => c[0] === 'mp.list'), false);
   const row = db.prepare('SELECT maxplayer_domain_id FROM emby_accounts WHERE id = ?').get(created.id);
   assert.equal(row.maxplayer_domain_id, require('../src/config').maxplayerDomainCisneId);
 });

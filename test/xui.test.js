@@ -89,6 +89,45 @@ test('create_line manda paquete, caducidad, bouquets y member_id', async () => {
   assert.equal(q.get('is_trial'), '0');
 });
 
+test('si get_lines viene null se recorre get_line y se para tras los fallos', async () => {
+  const seen = [];
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    seen.push(`${action}${id ? `:${id}` : ''}`);
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    if (action === 'get_line' && id === '2') {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          status: 'STATUS_SUCCESS',
+          data: { id: 2, username: 'ana', exp_date: '2026-08-01 12:00', member_id: 3, enabled: 1 },
+        }),
+      };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE', error: 'line does not exist' }) };
+  });
+  const lines = await xui.getLines({ missStreak: 4, concurrency: 10 });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].username, 'ana');
+  assert.equal(lines[0].member_id, '3');
+  const ids = seen.filter((item) => item.startsWith('get_line:')).map((item) => Number(item.slice('get_line:'.length)));
+  assert.ok(ids.includes(2));
+  assert.ok(Math.max(...ids) < 30);
+  assert.equal(seen.filter((item) => item === 'get_lines').length, 1);
+});
+
+test('get_lines con datos no recorre ids', async () => {
+  const seen = [];
+  xui.setTransport(async (url) => {
+    seen.push(url.searchParams.get('action'));
+    return { status: 200, body: JSON.stringify([{ id: 4, username: 'beta', enabled: 1 }]) };
+  });
+  const lines = await xui.getLines();
+  assert.equal(lines[0].username, 'beta');
+  assert.deepEqual(seen, ['get_lines']);
+});
+
 test('la petición real de XUI no verifica TLS solo cuando el flag está activo', async () => {
   assert.equal(xui.tlsRejectUnauthorized(), false);
   const original = https.request;
