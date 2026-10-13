@@ -1,0 +1,20 @@
+<table class="accounts-table">
+  <thead><tr>
+    <th>Cuenta</th>
+    <th>Servicios</th>
+    <% if (showOwner) { %><th>Reseller</th><% } %>
+    <th>Plan</th>
+    <th>Creada</th>
+    <th>Vence</th>
+    <th class="th-meter">Tiempo restante</th>
+    <th>Estado</th>
+    <th>Acciones</th>
+  </tr></thead>
+  <tbody>
+  <% list.forEach(function (a) { %>
+    <%- include('./account-row', { a: a }) %>
+  <% }) %>
+  </tbody>
+</table>
+<%- include('./account-menu') %>
+<%- include('./account-pager') %>
