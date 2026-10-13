@@ -514,7 +514,7 @@ function connectionCard(accountId, actor) {
     username: account.username,
     password,
     plan: account.plan_name,
-    screens: account.plan_screens,
+    screens: account.screens != null ? account.screens : account.plan_screens,
     expiresAt: account.expires_at,
     embyExpiresAt: account.emby_expires_at,
     xuiExpiresAt: account.xui_expires_at,
@@ -1035,6 +1035,280 @@ async function changePassword({ accountId, newPassword, actor }) {
   throw new BusinessError(`No se pudo cambiar la contraseña: ${errors.join(' · ')}`);
 }
 
+function accountScreenCount(account, planRow) {
+  if (account.screens != null && account.screens !== '') return Number(account.screens);
+  if (planRow && planRow.screens != null) return Number(planRow.screens);
+  if (account.plan_screens != null) return Number(account.plan_screens);
+  return 1;
+}
+
+function remainingDays(sql) {
+  if (!sql) return null;
+  const ms = parseSqlDate(sql).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(ms / (24 * 3600 * 1000), 0);
+}
+
+function suggestEmbyPlanId(account) {
+  const days = remainingDays(account.xui_expires_at);
+  if (days == null) return account.plan_id || null;
+  const match = planMatchingDays(days, accountScreenCount(account));
+  return (match && match.id) || account.plan_id || null;
+}
+
+function suggestXuiPackageId(account, packages) {
+  const list = packages || [];
+  if (!list.length) return '';
+  const screens = accountScreenCount(account);
+  const days = remainingDays(account.emby_expires_at);
+  if (days == null) {
+    const current = list.find((pack) => String(pack.id) === String(account.xui_package_id || ''));
+    return String((current || list[0]).id);
+  }
+  let best = list[0];
+  let bestScore = Infinity;
+  for (const pack of list) {
+    const packDays = packageDurationDays(pack);
+    const diff = packDays == null ? Math.abs(Number(days) - 30) : Math.abs(Number(packDays) - Number(days));
+    const screenPenalty = screens && pack.max_connections && Number(pack.max_connections) !== Number(screens) ? 0.001 : 0;
+    const score = diff + screenPenalty;
+    if (score < bestScore) {
+      best = pack;
+      bestScore = score;
+    }
+  }
+  return String(best.id);
+}
+
+function panelUsernameTaken(username, accountId) {
+  return db
+    .prepare(
+      `SELECT id FROM emby_accounts
+       WHERE username = ? COLLATE NOCASE AND id != ? AND status != 'deleted'`
+    )
+    .get(username, accountId);
+}
+
+// Cambia usuario, contraseña, conexiones y notas. Los servicios se actualizan
+// antes que la fila. Si uno falla, se deshace lo ya aplicado y la BD no cambia.
+async function editAccount({ accountId, username, password, screens, notes, actor }) {
+  const account = loadOwned(accountId, actor);
+  const planRow = account.plan_id
+    ? db.prepare('SELECT screens FROM plans WHERE id = ?').get(account.plan_id)
+    : null;
+  const currentScreens = accountScreenCount(account, planRow);
+  const nextUser = username == null ? account.username : String(username).trim();
+  if (!/^[a-zA-Z0-9._-]{3,32}$/.test(nextUser)) {
+    throw new BusinessError('Usuario inválido: 3-32 caracteres, solo letras, números, punto, guion y guion bajo');
+  }
+  const passwordText = password == null ? '' : String(password);
+  const changingPassword = passwordText.length > 0;
+  if (changingPassword && passwordText.length < 4) {
+    throw new BusinessError('La contraseña debe tener al menos 4 caracteres');
+  }
+  let nextScreens = currentScreens;
+  const screensText = screens == null ? '' : String(screens).trim();
+  if (screensText !== '') {
+    if (!/^\d+$/.test(screensText)) {
+      throw new BusinessError('Las conexiones deben ser un número entre 1 y 20');
+    }
+    nextScreens = parseInt(screensText, 10);
+    if (nextScreens < 1 || nextScreens > 20) {
+      throw new BusinessError('Las conexiones deben ser un número entre 1 y 20');
+    }
+  }
+  const nextNotes = notes === undefined ? account.notes : String(notes).trim() || null;
+  const nameChanged = nextUser !== account.username;
+  const screensChanged = nextScreens !== currentScreens;
+  const notesChanged = (nextNotes || null) !== (account.notes || null);
+  const currentPassword = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  const nextPassword = changingPassword ? passwordText : currentPassword;
+
+  if (nameChanged && panelUsernameTaken(nextUser, account.id)) {
+    throw new BusinessError('Ese usuario ya existe en el panel. No se ha cambiado la cuenta.');
+  }
+  if (nameChanged && X().isConfigured()) {
+    let line = null;
+    try {
+      line = await X().findLineByUsername(nextUser);
+    } catch (err) {
+      throw new BusinessError(`No se pudo comprobar el usuario en XUI (${err.message}). No se ha cambiado la cuenta.`);
+    }
+    if (line && String(line.id) !== String(account.xui_line_id || '')) {
+      throw new BusinessError('Ese usuario ya existe en XUI. No se ha cambiado la cuenta.');
+    }
+  }
+
+  const targets = [account.emby_user_id, account.xui_line_id, account.maxplayer_user_id].filter(Boolean);
+  if (changingPassword && !currentPassword && targets.length > 1) {
+    throw new BusinessError('No hay contraseña anterior guardada. No se cambia nada para no dejar los servicios distintos.');
+  }
+  const touchPlaylist = !!(account.maxplayer_user_id && (nameChanged || changingPassword));
+  if (touchPlaylist) {
+    if (!nextPassword) {
+      throw new BusinessError('No hay contraseña guardada. Escríbela para poder actualizar Max Player. No se ha cambiado la cuenta.');
+    }
+    if (!(account.maxplayer_domain_id || config.maxplayerDomainId)) {
+      throw new BusinessError('Falta el dominio de Max Player para actualizar la lista. No se ha cambiado la cuenta.');
+    }
+  }
+
+  const applied = {
+    xui: false,
+    embyName: false,
+    embyPassword: false,
+    embyScreens: false,
+    mpPassword: false,
+    mpPlaylist: false,
+    mpScreens: false,
+  };
+
+  async function rollback() {
+    const stuck = [];
+    async function undo(label, fn) {
+      try {
+        await fn();
+      } catch (err) {
+        stuck.push(`${label}: ${err.message}`);
+      }
+    }
+    if (applied.mpScreens) {
+      await undo('Max Player', () => M().setDeviceLimit(account.maxplayer_user_id, currentScreens));
+    }
+    if (applied.mpPassword && currentPassword) {
+      await undo('Max Player', () => M().changePassword(account.maxplayer_user_id, currentPassword));
+    }
+    if (applied.mpPlaylist && currentPassword) {
+      await undo('Max Player', () =>
+        M().attachPlaylist(account.maxplayer_user_id, {
+          domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
+          iptvUsername: account.username,
+          iptvPassword: currentPassword,
+        })
+      );
+    }
+    if (applied.embyScreens) {
+      await undo('Emby', () => E().setStreamLimit(account.emby_user_id, currentScreens));
+    }
+    if (applied.embyPassword && currentPassword) {
+      await undo('Emby', () => E().setPassword(account.emby_user_id, currentPassword));
+    }
+    if (applied.embyName) {
+      await undo('Emby', () => E().renameUser(account.emby_user_id, account.username));
+    }
+    if (applied.xui) {
+      const back = {};
+      if (nameChanged) back.username = account.username;
+      if (changingPassword && currentPassword) back.password = currentPassword;
+      if (screensChanged) back.max_connections = currentScreens;
+      await undo('XUI', () => X().editLine(account.xui_line_id, xuiEditFields(account, back)));
+    }
+    return stuck;
+  }
+
+  function failure(label, err, stuck) {
+    const why = err && err.message ? err.message : 'error';
+    if (stuck.length) {
+      return new BusinessError(
+        `Falló ${label} (${why}). No se pudo deshacer: ${stuck.join(' · ')}. El panel sigue con el usuario ${account.username} y la contraseña anterior.`
+      );
+    }
+    return new BusinessError(`Falló ${label} (${why}). No se ha cambiado la cuenta en el panel.`);
+  }
+
+  async function runStep(label, fn) {
+    try {
+      await fn();
+    } catch (err) {
+      throw failure(label, err, await rollback());
+    }
+  }
+
+  const remote = nameChanged || changingPassword || screensChanged;
+  if (remote && account.xui_line_id) {
+    await runStep('XUI', async () => {
+      const fields = {};
+      if (nameChanged) fields.username = nextUser;
+      if (changingPassword) fields.password = nextPassword;
+      if (screensChanged) fields.max_connections = nextScreens;
+      await X().editLine(account.xui_line_id, xuiEditFields(account, fields));
+      applied.xui = true;
+    });
+  }
+  if (remote && account.emby_user_id) {
+    await runStep('Emby', async () => {
+      if (nameChanged) {
+        await E().renameUser(account.emby_user_id, nextUser);
+        applied.embyName = true;
+      }
+      if (changingPassword) {
+        await E().setPassword(account.emby_user_id, nextPassword);
+        applied.embyPassword = true;
+      }
+      if (screensChanged) {
+        await E().setStreamLimit(account.emby_user_id, nextScreens);
+        applied.embyScreens = true;
+      }
+    });
+  }
+  if (remote && account.maxplayer_user_id) {
+    await runStep('Max Player', async () => {
+      if (changingPassword) {
+        await M().changePassword(account.maxplayer_user_id, nextPassword);
+        applied.mpPassword = true;
+      }
+      if (nameChanged || changingPassword) {
+        await M().attachPlaylist(account.maxplayer_user_id, {
+          domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
+          iptvUsername: nextUser,
+          iptvPassword: nextPassword,
+        });
+        applied.mpPlaylist = true;
+      }
+      if (screensChanged) {
+        await M().setDeviceLimit(account.maxplayer_user_id, nextScreens);
+        applied.mpScreens = true;
+      }
+    });
+  }
+
+  const sets = [];
+  const params = [];
+  if (nameChanged) {
+    sets.push('username = ?');
+    params.push(nextUser);
+  }
+  if (changingPassword) {
+    sets.push('password_hash = ?', 'password_enc = ?');
+    params.push(bcrypt.hashSync(nextPassword, 10), secret.encrypt(nextPassword));
+  }
+  if (screensChanged) {
+    sets.push('screens = ?');
+    params.push(nextScreens);
+  }
+  if (notesChanged) {
+    sets.push('notes = ?');
+    params.push(nextNotes);
+  }
+  if (sets.length) {
+    params.push(account.id);
+    try {
+      db.prepare(`UPDATE emby_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+    } catch (err) {
+      const stuck = await rollback();
+      const why = err && err.message ? err.message : 'error';
+      if (stuck.length) {
+        throw new BusinessError(
+          `La cuenta no se guardó en el panel (${why}). No se pudo deshacer: ${stuck.join(' · ')}. El panel sigue con el usuario ${account.username} y la contraseña anterior.`
+        );
+      }
+      throw new BusinessError(`La cuenta no se guardó en el panel (${why}). Los servicios se dejaron como estaban.`);
+    }
+  }
+
+  return { username: nextUser, credentialsChanged: nameChanged || changingPassword };
+}
+
 // Cambia el plan SIN tocar la fecha. El reseller solo entre planes de la misma
 // duración, cobrando o abonando la diferencia de los servicios que ya existen.
 async function changePlan({ accountId, planId, actor }) {
@@ -1268,9 +1542,10 @@ function accountPageHref(base, state, page) {
   if (state.dominio) params.set('dominio', state.dominio);
   if (state.tipo) params.set('tipo', state.tipo);
   if (state.reseller) params.set('reseller', String(state.reseller));
-  if (state.sort && state.sort !== 'activas') params.set('orden', state.sort);
+  if (state.sort && state.sort !== 'creada') params.set('orden', state.sort);
   if (state.pageSize !== 50) params.set('tam', String(state.pageSize));
-  if (state.dir !== 'asc') params.set('dir', state.dir);
+  const defaultDir = state.sort === 'creada' ? 'desc' : 'asc';
+  if (state.dir !== defaultDir) params.set('dir', state.dir);
   if (page > 1) params.set('pagina', String(page));
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
@@ -1284,9 +1559,11 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   const estado = ['active', 'expired'].includes(src.estado) ? src.estado : '';
   const filters = accountListFilters(src);
   const pageSize = PAGE_SIZES.includes(parseInt(src.tam, 10)) ? parseInt(src.tam, 10) : 50;
-  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'activas';
+  let sort = src.orden === 'activas' || Object.prototype.hasOwnProperty.call(SORTS, src.orden)
+    ? src.orden
+    : 'creada';
   if (ownerId && sort === 'reseller') sort = 'vence';
-  let dir = src.dir === 'desc' ? 'desc' : 'asc';
+  let dir = src.dir === 'asc' || src.dir === 'desc' ? src.dir : (sort === 'creada' ? 'desc' : 'asc');
   if (sort === 'activas') dir = 'asc';
   let reseller = '';
   if (!ownerId) {
@@ -1332,7 +1609,7 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   if (page > pages) page = pages;
   const offset = (page - 1) * pageSize;
   const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
-  // Sin orden explícito, las caducadas (fecha más vieja) no ocupan la primera página.
+  // Sin orden explícito: la cuenta creada más reciente va primero.
   const nullsLast = 'CASE WHEN a.expires_at IS NULL THEN 1 ELSE 0 END';
   const orderBy = sort === 'activas'
     ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, ${nullsLast}, a.expires_at ASC, a.id ASC`
@@ -1488,13 +1765,15 @@ async function addService({ accountId, actor, service, planId, packageId, player
       throw new BusinessError(`Créditos insuficientes: Emby cuesta ${quoted.cost} y tienes ${actor.credits}`);
     }
     const user = await E().createUser(account.username, password);
+    const screens = account.screens || plan.screens || 1;
     try {
-      await E().updatePolicy(user.Id, { SimultaneousStreamLimit: plan.screens || 1, ...(await activeLibrariesPatch()) });
+      await E().updatePolicy(user.Id, { SimultaneousStreamLimit: screens, ...(await activeLibrariesPatch()) });
     } catch (err) {
       await E().deleteUser(user.Id).catch(() => {});
       throw err;
     }
-    const embyExpiry = extendDate(null, plan);
+    // Si ya hay línea XUI, Emby copia su caducidad (también si es ilimitada).
+    const embyExpiry = account.xui_line_id ? account.xui_expires_at || null : extendDate(null, plan);
     const next = Object.assign({}, account, { emby_expires_at: embyExpiry, has_emby: 1, emby_user_id: user.Id });
     const tx = db.transaction(() => {
       db.prepare(
@@ -1513,11 +1792,14 @@ async function addService({ accountId, actor, service, planId, packageId, player
   const kind = playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix';
   const packageRow = await loadPackage(packageId);
   const xuiDays = resolveXuiDays(packageRow, plan);
-  const xuiPlan = planMatchingDays(xuiDays) || plan;
-  if (!xuiPlan) throw new BusinessError('Elige la duración de XUI');
+  const matched = planMatchingDays(xuiDays, packageRow && packageRow.max_connections);
+  // Igual que al crear: el plan de la cuenta pone el precio de XUI y de Max Player.
+  // Si el paquete tiene precio propio, ese sustituye al del plan. La caducidad sale del paquete.
+  const pricingPlan = plan || matched;
+  if (!pricingPlan) throw new BusinessError('Elige la duración de XUI');
   const quoted = quoteCost({
-    plan: xuiPlan,
-    xuiPlan,
+    plan: pricingPlan,
+    xuiPlan: pricingPlan,
     packageRow,
     emby: false,
     xui: true,
@@ -1531,7 +1813,7 @@ async function addService({ accountId, actor, service, planId, packageId, player
     username: account.username,
     password,
     expDate: xuiExpiry,
-    maxConnections: lineConnections(xuiPlan || plan || { screens: 1 }, packageRow),
+    maxConnections: lineConnections(pricingPlan, packageRow),
     packageId: packageRow.id,
     isTrial: !!packageRow.is_trial,
     bouquets: parseBouquets(packageRow.bouquets),
@@ -1682,6 +1964,9 @@ module.exports = {
   retryProvision,
   renewAccount,
   changePassword,
+  editAccount,
+  suggestEmbyPlanId,
+  suggestXuiPackageId,
   changePlan,
   connectionData,
   connectionCard,

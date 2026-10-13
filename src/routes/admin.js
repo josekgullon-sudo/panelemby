@@ -512,6 +512,8 @@ router.get(
         plans,
         packages: form.packages,
         maxplayerConfigured: form.maxplayerConfigured,
+        suggestedEmbyPlanId: accounts.suggestEmbyPlanId(payload.account),
+        suggestedXuiPackageId: accounts.suggestXuiPackageId(payload.account, form.packages),
         base: '/admin/cuentas',
         listUrl: '/admin/cuentas',
         newAccount,
@@ -565,6 +567,32 @@ router.post(
         packageId: req.body.xui_package_id,
       });
       req.setFlash('ok', `${result.service === 'emby' ? 'Emby' : 'XUI'} ampliado hasta ${String(result.expiresAt).slice(0, 16)}.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
+  '/cuentas/:id/editar',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.editAccount({
+        accountId: parseInt(req.params.id, 10),
+        username: req.body.username,
+        password: req.body.password,
+        screens: req.body.screens,
+        notes: req.body.notes,
+        actor: req.user,
+      });
+      if (result.credentialsChanged) {
+        const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
+        card.mode = 'resend';
+        req.session.newAccount = card;
+      }
+      req.setFlash('ok', 'Cuenta actualizada');
       res.redirect(back);
     } catch (err) {
       backWithError(req, res, err, back);

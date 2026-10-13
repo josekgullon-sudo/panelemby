@@ -15,6 +15,7 @@
     <div><dt>Reseller</dt><dd><%= account.owner_name %></dd></div>
     <div><dt>Creada</dt><dd><%= account.created_at %></dd></div>
     <div><dt>Plan</dt><dd><%= account.plan || '—' %></dd></div>
+    <div><dt>Conexiones</dt><dd><%= account.screens || account.plan_screens || '—' %></dd></div>
     <% if (account.emby_user_id || account.has_emby) { %>
       <div><dt>Emby</dt><dd><%= account.emby_user_id || 'pendiente' %></dd></div>
       <div><dt>Caduca Emby</dt><dd><%= account.emby_expires_at ? formatClientDate(account.emby_expires_at) : '—' %><%= account.emby_cut ? ' · cortada' : '' %></dd></div>
@@ -23,7 +24,6 @@
       <div><dt>Línea XUI</dt><dd><%= account.xui_line_id || 'pendiente' %></dd></div>
       <div><dt>Caduca XUI</dt><dd><%= account.xui_expires_at ? formatClientDate(account.xui_expires_at) : 'Sin caducidad' %><%= account.xui_cut ? ' · cortada' : '' %></dd></div>
       <div><dt>Paquete</dt><dd><%= account.xui_package_name || account.xui_package_id || '—' %></dd></div>
-      <div><dt>Conexiones</dt><dd><%= account.plan_screens || '—' %></dd></div>
     <% } %>
     <% if (account.maxplayer_user_id || account.player_kind === 'maxplayer') { %>
       <div><dt>Max Player</dt><dd><%= account.maxplayer_user_id || 'pendiente' %></dd></div>
@@ -32,6 +32,22 @@
     <% if (account.notes) { %><div><dt>Notas</dt><dd><%= account.notes %></dd></div><% } %>
     <% if (account.provision_error) { %><div><dt>Aviso</dt><dd class="td-warn"><%= account.provision_error %></dd></div><% } %>
   </dl>
+</section>
+
+<section class="panel" id="editar">
+  <div class="panel-head"><h2>Editar</h2></div>
+  <form method="post" action="<%= base %>/<%= account.id %>/editar" class="form-stack edit-account">
+    <label for="edit-user">Usuario</label>
+    <input id="edit-user" name="username" value="<%= account.username %>" required autocomplete="off" maxlength="32">
+    <label for="edit-pass">Contraseña</label>
+    <input id="edit-pass" name="password" type="password" placeholder="En blanco no cambia" autocomplete="new-password" aria-label="Nueva contraseña">
+    <label for="edit-screens">Conexiones</label>
+    <input id="edit-screens" name="screens" type="number" min="1" max="20" required value="<%= account.screens || account.plan_screens || 1 %>" inputmode="numeric">
+    <label for="edit-notes">Notas</label>
+    <textarea id="edit-notes" name="notes" rows="3"><%= account.notes || '' %></textarea>
+    <p class="hint">Usuario, contraseña y conexiones se actualizan en Emby, XUI y Max Player. Si uno falla, el panel no guarda el cambio.</p>
+    <button class="btn btn-primary">Guardar cambios</button>
+  </form>
 </section>
 
 <section class="panel">
@@ -71,30 +87,34 @@
   <div class="split-actions">
     <% if (!account.emby_user_id) { %>
     <form method="post" action="<%= base %>/<%= account.id %>/servicio" class="form-stack">
-      <div class="pop-title">Crear en Emby</div>
+      <div class="pop-title">Añadir a Emby</div>
       <input type="hidden" name="service" value="emby">
-      <select name="plan_id" required aria-label="Plan Emby">
+      <label for="add-emby">Duración Emby</label>
+      <select name="plan_id" id="add-emby" required aria-label="Plan Emby">
         <% plans.forEach(p => { %>
-          <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+          <option value="<%= p.id %>" <%= String(suggestedEmbyPlanId) === String(p.id) ? 'selected' : '' %>><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.</option>
         <% }) %>
       </select>
-      <button class="btn btn-primary btn-sm">Crear cuenta Emby</button>
+      <p class="hint">Mismo usuario y contraseña. La caducidad copia la de la línea. Se cobran los créditos del plan, igual que al crear.</p>
+      <button class="btn btn-primary">Añadir a Emby</button>
     </form>
     <% } %>
     <% if (!account.xui_line_id) { %>
     <form method="post" action="<%= base %>/<%= account.id %>/servicio" class="form-stack">
-      <div class="pop-title">Crear en XUI</div>
+      <div class="pop-title">Añadir a XUI</div>
       <input type="hidden" name="service" value="xui">
       <label for="add-xui">Duración XUI</label>
       <select name="xui_package_id" id="add-xui" required aria-label="Duración XUI">
-        <%- include('partials/xui-duration-options') %>
+        <%- include('partials/xui-duration-options', { selectedPackageId: suggestedXuiPackageId }) %>
       </select>
       <p class="expiry-preview" id="add-xui-expiry" aria-live="polite"></p>
-      <select name="player_kind" aria-label="Tipo de línea">
+      <label for="add-player">Reproductor</label>
+      <select name="player_kind" id="add-player" aria-label="Tipo de línea">
         <option value="totalflix">TotalFlix</option>
         <% if (maxplayerConfigured) { %><option value="maxplayer">Max Player</option><% } %>
       </select>
-      <button class="btn btn-primary btn-sm">Crear línea XUI</button>
+      <p class="hint">Misma cuenta. La línea sale con los formatos de reproducción. Se cobran los créditos igual que al crear.</p>
+      <button class="btn btn-primary">Añadir a XUI</button>
     </form>
     <% } %>
   </div>

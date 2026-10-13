@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     xui_expires_at      TEXT,
     emby_cut            INTEGER NOT NULL DEFAULT 0,
     xui_cut             INTEGER NOT NULL DEFAULT 0,
-    is_trial            INTEGER NOT NULL DEFAULT 0
+    is_trial            INTEGER NOT NULL DEFAULT 0,
+    screens             INTEGER
 );
 
 -- Catálogo XUI cacheado (get_packages). credit_cost NULL = usar el del plan.

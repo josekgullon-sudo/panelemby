@@ -90,7 +90,7 @@ test('create_line manda paquete, caducidad, bouquets y member_id', async () => {
   assert.equal(q.get('max_connections'), '2');
   assert.equal(q.get('bouquets_selected'), '["1","2"]');
   assert.equal(q.get('member_id'), '3');
-  assert.equal(q.get('is_trial'), '0');
+  assert.equal(q.get('is_trial'), null);
   assert.equal(q.get('allowed_outputs'), null);
   assert.deepEqual(q.getAll('access_output[]'), ['1', '2', '3']);
 });
@@ -185,7 +185,7 @@ test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', as
   assert.equal(edit.get('exp_date'), '2026-06-01 12:00');
   assert.equal(edit.get('bouquets_selected'), '["10","11"]');
   assert.equal(edit.get('max_connections'), '2');
-  assert.equal(edit.get('is_trial'), '0');
+  assert.equal(edit.get('is_trial'), null);
   assert.equal(edit.get('enabled'), '1');
   assert.equal(edit.get('admin_enabled'), '1');
   assert.equal(edit.get('member_id'), '3');
@@ -205,7 +205,7 @@ test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', as
   assert.equal(seen[1].searchParams.get('password'), 'nueva');
   assert.equal(seen[1].searchParams.get('username'), 'ana');
   assert.equal(seen[1].searchParams.get('bouquets_selected'), '["10","11"]');
-  assert.equal(seen[1].searchParams.get('is_trial'), '0');
+  assert.equal(seen[1].searchParams.get('is_trial'), null);
 
   seen.length = 0;
   await xui.disableLine('7');
@@ -215,8 +215,58 @@ test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', as
   assert.equal(disabled.get('username'), 'ana');
   assert.equal(disabled.get('password'), 'secret');
   assert.equal(disabled.get('bouquets_selected'), '["10","11"]');
-  assert.equal(disabled.get('is_trial'), '0');
+  assert.equal(disabled.get('is_trial'), null);
   assert.deepEqual(disabled.getAll('access_output[]'), ['4', '5']);
+});
+
+test('is_trial solo se envía cuando la línea es prueba', async () => {
+  const seen = fakeTransport({ status: 'STATUS_SUCCESS', data: { id: '42', username: 'ana' } });
+  await xui.createLine({
+    username: 'ana',
+    password: 'secret',
+    expDate: '2026-05-01 10:00',
+    maxConnections: 1,
+    packageId: '4',
+    isTrial: true,
+  });
+  assert.equal(seen[0].searchParams.get('is_trial'), '1');
+
+  const line = {
+    id: 7,
+    username: 'ana',
+    password: 'secret',
+    exp_date: '2026-05-01 10:00',
+    bouquet: '[10]',
+    max_connections: '1',
+    is_trial: '1',
+    enabled: '1',
+    admin_enabled: '1',
+    member_id: '3',
+    allowed_outputs: '[1,2,3]',
+  };
+  xui.setTransport(async (url) => {
+    seen.push(url);
+    if (url.searchParams.get('action') === 'get_line') {
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data: line }) };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: '7' } }) };
+  });
+  await xui.editLine('7', { exp_date: '2026-06-01 12:00' });
+  const trialEdit = seen.at(-2).searchParams;
+  assert.equal(trialEdit.get('action'), 'edit_line');
+  assert.equal(trialEdit.get('is_trial'), '1');
+
+  line.is_trial = '0';
+  await xui.editLine('7', { is_trial: 0 });
+  assert.equal(seen.at(-2).searchParams.get('is_trial'), null);
+
+  line.is_trial = '1';
+  await xui.editLine('7', { is_trial: '0' });
+  assert.equal(seen.at(-2).searchParams.get('is_trial'), null);
+
+  line.is_trial = '0';
+  await xui.editLine('7', { is_trial: 1 });
+  assert.equal(seen.at(-2).searchParams.get('is_trial'), '1');
 });
 
 test('edit_line falla si después el usuario o los bouquets no coinciden', async () => {
@@ -457,6 +507,34 @@ test('un hueco corto no tapa la línea siguiente y el id máximo corta el barrid
   const cut = await xui.getLines({ missStreak: 100, concurrency: 4, maxId: 10 });
   assert.equal(cut.length, 0);
   assert.deepEqual([...new Set(rest)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+});
+
+test('findLineByUsername acepta la línea de get_line y no sigue buscando', async () => {
+  const actions = [];
+  xui.setTransport(async (url) => {
+    actions.push(url.searchParams.get('action'));
+    return {
+      status: 200,
+      body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: 3, username: 'Ana' } }),
+    };
+  });
+  const line = await xui.findLineByUsername('ana');
+  assert.equal(line.id, '3');
+  assert.equal(line.username, 'Ana');
+  assert.deepEqual(actions, ['get_line']);
+});
+
+test('findLineByUsername prueba get_lines y no recorre ids si no hay línea', async () => {
+  const actions = [];
+  xui.setTransport(async (url) => {
+    actions.push(url.searchParams.get('action'));
+    if (url.searchParams.get('action') === 'get_line') {
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE', error: 'STATUS_FAILURE' }) };
+    }
+    return { status: 200, body: 'null' };
+  });
+  assert.equal(await xui.findLineByUsername('libre'), null);
+  assert.deepEqual(actions, ['get_line', 'get_lines']);
 });
 
 test('la petición real de XUI no verifica TLS solo cuando el flag está activo', async () => {

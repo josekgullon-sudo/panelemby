@@ -55,7 +55,7 @@ test('la página corta en SQL y no repite filas', () => {
   const seen = new Set(first.list.map((row) => row.id));
   assert.ok(second.list.every((row) => !seen.has(row.id)));
   assert.ok(first.list.every((row) => row.status !== 'deleted'));
-  assert.ok(first.list[0].expires_at < second.list[0].expires_at);
+  assert.ok(first.list[0].created_at > second.list[0].created_at);
 });
 
 test('un tamaño inválido vuelve a 50 y una página de más cae en la última', () => {
@@ -121,12 +121,26 @@ test('un reseller solo ve sus cuentas y no puede ordenar ni filtrar por otro', (
   assert.match(own.href(2), /^\/reseller\/cuentas\?/);
 });
 
-test('la primera página son activas aunque haya caducadas más antiguas', () => {
+test('por defecto la lista ordena por creación, la más nueva primero', () => {
   const page = listAccounts({ tam: '25' });
-  assert.equal(page.sort, 'activas');
+  assert.equal(page.sort, 'creada');
+  assert.equal(page.dir, 'desc');
   assert.equal(page.list[0].username, 'u01');
-  assert.ok(page.list.every((row) => row.status === 'active'));
+  const created = page.list.map((row) => row.created_at);
+  assert.deepEqual(created, created.slice().sort((a, b) => b.localeCompare(a)));
+  assert.ok(page.list.some((row) => row.status === 'expired'));
   assert.equal(page.href(2).includes('orden='), false);
+  assert.equal(page.href(2).includes('dir='), false);
+
+  const activeFirst = listAccounts({ tam: '25', orden: 'activas' });
+  assert.equal(activeFirst.sort, 'activas');
+  assert.ok(activeFirst.list.every((row) => row.status === 'active'));
+  assert.match(activeFirst.href(2), /orden=activas/);
+
+  const oldest = listAccounts({ orden: 'creada', dir: 'asc', tam: '25' });
+  assert.equal(oldest.list[0].username, 'u60');
+  assert.match(oldest.href(2), /dir=asc/);
+  assert.equal(oldest.href(2).includes('orden='), false);
 });
 
 test('el filtro de tipo separa prueba y normal', () => {

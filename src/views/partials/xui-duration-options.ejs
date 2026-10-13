@@ -1,8 +1,9 @@
 <% if (!packages.length) { %>
   <option value="">No hay paquetes todavía</option>
 <% } %>
+<% const picked = typeof selectedPackageId !== 'undefined' && selectedPackageId != null ? String(selectedPackageId) : ''; %>
 <% packages.forEach(function (pack) { const meta = xuiOptionMeta(pack); %>
-  <option value="<%= pack.id %>"
+  <option value="<%= pack.id %>" <%= picked === String(pack.id) ? 'selected' : '' %>
     data-days="<%= meta.days == null ? '' : meta.days %>"
     data-fallback-days="<%= meta.fallbackDays == null ? '' : meta.fallbackDays %>"
     data-cost="<%= pack.credit_cost == null ? '' : pack.credit_cost %>"

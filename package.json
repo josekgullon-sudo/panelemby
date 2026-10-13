@@ -12,6 +12,7 @@
     "import-emby": "node scripts/import-emby.js",
     "import-xui": "node scripts/import-xui.js",
     "auditar-ilimitadas": "node scripts/auditar-ilimitadas-xui.js",
+    "listar-pruebas-xui": "node scripts/listar-pruebas-xui.js",
     "rellenar-xui": "node scripts/rellenar-lineas-xui.js",
     "sync-bibliotecas": "node scripts/sync-libraries.js",
     "test": "node --test test/*.test.js",
