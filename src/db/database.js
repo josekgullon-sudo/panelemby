@@ -51,6 +51,7 @@ ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD C
 ensureColumn('emby_accounts', 'emby_cut', 'ALTER TABLE emby_accounts ADD COLUMN emby_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN xui_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
+ensureColumn('emby_accounts', 'screens', 'ALTER TABLE emby_accounts ADD COLUMN screens INTEGER');
 ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
 
 // Una instalación antigua tiene expires_at NOT NULL. Las líneas XUI sin fecha
@@ -65,7 +66,7 @@ function relaxExpiresNotNull() {
     'expires_at', 'status', 'notes', 'created_at', 'has_emby', 'xui_line_id', 'xui_package_id',
     'xui_package_name', 'xui_bouquets', 'player_kind', 'maxplayer_user_id', 'maxplayer_list_ok',
     'maxplayer_domain_id', 'provision_error', 'emby_expires_at', 'xui_expires_at', 'emby_cut',
-    'xui_cut', 'is_trial',
+    'xui_cut', 'is_trial', 'screens',
   ];
   const extra = names.filter((name) => !kept.includes(name));
   if (extra.length) {
@@ -103,7 +104,8 @@ function relaxExpiresNotNull() {
           xui_expires_at      TEXT,
           emby_cut            INTEGER NOT NULL DEFAULT 0,
           xui_cut             INTEGER NOT NULL DEFAULT 0,
-          is_trial            INTEGER NOT NULL DEFAULT 0
+          is_trial            INTEGER NOT NULL DEFAULT 0,
+          screens             INTEGER
         );
         INSERT INTO emby_accounts_new (${list}) SELECT ${list} FROM emby_accounts;
         DROP TABLE emby_accounts;

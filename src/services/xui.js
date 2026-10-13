@@ -300,6 +300,40 @@ async function getLine(id) {
   return request('get_line', { id });
 }
 
+function linesFromLookup(data) {
+  const rows = lineList(data);
+  const source = rows.length
+    ? rows
+    : data && typeof data === 'object' && !Array.isArray(data)
+      ? [data]
+      : [];
+  return source.map(normalizeLine).filter((line) => line.id && line.username);
+}
+
+// Busca un usuario sin recorrer ids. get_lines en este XUI devuelve null;
+// si las dos lecturas vienen vacías, el nombre se trata como libre.
+async function findLineByUsername(username) {
+  const name = String(username || '').trim();
+  if (!name) return null;
+  const queries = [
+    ['get_line', { username: name }],
+    ['get_lines', { search: name, username: name, limit: 50 }],
+  ];
+  for (const [action, params] of queries) {
+    let data;
+    try {
+      data = await request(action, params);
+    } catch (err) {
+      if (err && (err.status === 404 || err.status === 400)) continue;
+      if (err && /respondió vacío|no devolvió JSON/i.test(err.message || '')) continue;
+      throw err;
+    }
+    const hit = linesFromLookup(data).find((line) => line.username.toLowerCase() === name.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
 async function fetchLine(id) {
   const raw = await readLine(id);
   const line = lineFromPayload(raw);
@@ -631,6 +665,7 @@ module.exports = {
   parseExpToDate,
   getPackages,
   getLine,
+  findLineByUsername,
   fetchLine,
   trialFlag,
   getLines,

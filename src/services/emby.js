@@ -92,6 +92,13 @@ async function setPassword(embyUserId, newPassword) {
   });
 }
 
+// Emby no tiene un PATCH de nombre: se lee el usuario y se reenvía con Name nuevo.
+async function renameUser(embyUserId, name) {
+  const user = await getUser(embyUserId);
+  const next = Object.assign({}, user, { Name: name });
+  return embyRequest('POST', `/Users/${embyUserId}`, next);
+}
+
 // Emby reemplaza la Policy completa en cada POST: hay que leerla,
 // aplicar solo los cambios y reenviarla entera.
 async function updatePolicy(embyUserId, patch) {
@@ -124,6 +131,7 @@ module.exports = {
   getUser,
   createUser,
   setPassword,
+  renameUser,
   updatePolicy,
   setDisabled,
   setStreamLimit,

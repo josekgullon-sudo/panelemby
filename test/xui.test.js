@@ -459,6 +459,34 @@ test('un hueco corto no tapa la línea siguiente y el id máximo corta el barrid
   assert.deepEqual([...new Set(rest)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
+test('findLineByUsername acepta la línea de get_line y no sigue buscando', async () => {
+  const actions = [];
+  xui.setTransport(async (url) => {
+    actions.push(url.searchParams.get('action'));
+    return {
+      status: 200,
+      body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: 3, username: 'Ana' } }),
+    };
+  });
+  const line = await xui.findLineByUsername('ana');
+  assert.equal(line.id, '3');
+  assert.equal(line.username, 'Ana');
+  assert.deepEqual(actions, ['get_line']);
+});
+
+test('findLineByUsername prueba get_lines y no recorre ids si no hay línea', async () => {
+  const actions = [];
+  xui.setTransport(async (url) => {
+    actions.push(url.searchParams.get('action'));
+    if (url.searchParams.get('action') === 'get_line') {
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE', error: 'STATUS_FAILURE' }) };
+    }
+    return { status: 200, body: 'null' };
+  });
+  assert.equal(await xui.findLineByUsername('libre'), null);
+  assert.deepEqual(actions, ['get_line', 'get_lines']);
+});
+
 test('la petición real de XUI no verifica TLS solo cuando el flag está activo', async () => {
   assert.equal(xui.tlsRejectUnauthorized(), false);
   const original = https.request;

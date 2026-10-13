@@ -45,6 +45,7 @@
         Reparar
       </button>
     </form>
+    <a class="btn btn-ghost btn-sm" id="menu-editar" href="#">Editar</a>
     <a class="btn btn-ghost btn-sm" id="menu-ficha" href="#">Ficha</a>
     <% if (canMove) { %>
     <details>
@@ -73,6 +74,7 @@
   var title = document.getElementById('account-menu-title');
   var datos = document.getElementById('menu-datos');
   var ficha = document.getElementById('menu-ficha');
+  var editar = document.getElementById('menu-editar');
   var renew = document.getElementById('menu-renew');
   var renewPlan = document.getElementById('menu-renew-plan');
   var planForm = document.getElementById('menu-plan');
@@ -100,6 +102,7 @@
     title.textContent = user;
     datos.href = root + '/datos';
     ficha.href = root;
+    if (editar) editar.href = root + '#editar';
     renew.action = root + '/renovar';
     planForm.action = root + '/plan';
     password.action = root + '/password';
