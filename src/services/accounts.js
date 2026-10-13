@@ -407,12 +407,20 @@ function lineConnections(plan, packageRow) {
   return plan.screens || 1;
 }
 
+function panelBouquets(value) {
+  if (value == null) return '';
+  const text = Array.isArray(value) ? JSON.stringify(value) : String(value).trim();
+  if (!text || text === '[]' || text === 'null') return '';
+  return text;
+}
+
+// Lo usan la contraseña, renovar, ampliar, reactivar y cambiar de plan.
+// Los bouquets de la edición salen de get_line. Si aquí están vacíos no se
+// mandan: edit_line los interpretaría como «sin canales».
 function xuiEditFields(account, extra) {
   const fields = Object.assign({}, extra);
-  // Un array vacío en edit_line puede borrar los bouquets del panel XUI.
-  if (account.xui_bouquets && account.xui_bouquets !== '[]') {
-    fields.bouquets_selected = account.xui_bouquets;
-  }
+  const bouquets = panelBouquets(account && account.xui_bouquets);
+  if (bouquets) fields.bouquets_selected = bouquets;
   return fields;
 }
 

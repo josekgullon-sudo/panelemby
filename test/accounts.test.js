@@ -378,7 +378,19 @@ test('renovar, caducar y borrar tocan cada sistema donde existe la cuenta', asyn
   calls.length = 0;
   await accounts.renewAccount({ accountId: created.id, planId: plan.id, actor: actor() });
   assert.ok(calls.some((c) => c[0] === 'emby.policy'));
-  assert.ok(calls.some((c) => c[0] === 'xui.edit' && c[2].exp_date));
+  const renewed = calls.find((c) => c[0] === 'xui.edit');
+  assert.ok(renewed && renewed[2].exp_date);
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  db.prepare("UPDATE emby_accounts SET xui_bouquets = '[]' WHERE id = ?").run(created.id);
+  calls.length = 0;
+  await accounts.renewAccount({ accountId: created.id, planId: plan.id, actor: actor() });
+  const emptyBouquets = calls.find((c) => c[0] === 'xui.edit');
+  assert.equal(emptyBouquets[2].bouquets_selected, undefined);
+  db.prepare("UPDATE emby_accounts SET xui_bouquets = ? WHERE id = ?").run('[9,8]', created.id);
+  calls.length = 0;
+  await accounts.renewAccount({ accountId: created.id, planId: plan.id, actor: actor() });
+  const keptBouquets = calls.find((c) => c[0] === 'xui.edit');
+  assert.equal(keptBouquets[2].bouquets_selected, '[9,8]');
   assert.ok(calls.some((c) => c[0] === 'xui.enable'));
   assert.ok(calls.some((c) => c[0] === 'mp.list'));
 

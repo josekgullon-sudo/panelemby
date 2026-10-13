@@ -91,14 +91,25 @@ test('create_line manda paquete, caducidad, bouquets y member_id', async () => {
   assert.equal(q.get('bouquets_selected'), '["1","2"]');
   assert.equal(q.get('member_id'), '3');
   assert.equal(q.get('is_trial'), '0');
-  assert.equal(q.get('allowed_outputs'), '[1,2,3]');
+  assert.equal(q.get('allowed_outputs'), null);
+  assert.deepEqual(q.getAll('access_output[]'), ['1', '2', '3']);
 });
 
-test('create_line manda allowed_outputs con el formato aún por confirmar', async () => {
-  assert.equal(xui.allowedOutputsJson(''), '[1,2,3]');
-  assert.equal(xui.allowedOutputsJson('1, 2, 3'), '[1,2,3]');
-  assert.equal(xui.allowedOutputsJson('[4,5]'), '[4,5]');
-  assert.equal(xui.allowedOutputsJson('no'), '[1,2,3]');
+test('buildUrl repite access_output[] y create_line usa XUI_ALLOWED_OUTPUTS', async () => {
+  assert.deepEqual(xui.allowedOutputIds(''), null);
+  assert.deepEqual(xui.allowedOutputIds('[]'), null);
+  assert.deepEqual(xui.allowedOutputIds('1, 2, 3'), [1, 2, 3]);
+  assert.deepEqual(xui.allowedOutputIds('[4,5]'), [4, 5]);
+  assert.deepEqual(xui.allowedOutputIds('no'), null);
+
+  const url = xui.buildUrl('edit_line', {
+    id: '4',
+    username: 'ana',
+    'access_output[]': [1, 2, 3],
+  });
+  assert.deepEqual(url.searchParams.getAll('access_output[]'), ['1', '2', '3']);
+  assert.equal((url.search.match(/access_output%5B%5D=/g) || []).length, 3);
+  assert.equal(url.searchParams.get('username'), 'ana');
 
   const seen = fakeTransport({ status: 'STATUS_SUCCESS', data: { id: '7', username: 'ana' } });
   await xui.createLine({
@@ -109,7 +120,8 @@ test('create_line manda allowed_outputs con el formato aún por confirmar', asyn
     packageId: '4',
   });
   assert.equal(seen[0].searchParams.get('action'), 'create_line');
-  assert.equal(seen[0].searchParams.get('allowed_outputs'), '[1,2,3]');
+  assert.deepEqual(seen[0].searchParams.getAll('access_output[]'), ['1', '2', '3']);
+  assert.equal(seen[0].searchParams.get('allowed_outputs'), null);
 
   const previous = config.xuiAllowedOutputs;
   config.xuiAllowedOutputs = '2, 3';
@@ -121,13 +133,13 @@ test('create_line manda allowed_outputs con el formato aún por confirmar', asyn
       maxConnections: 1,
       packageId: '4',
     });
-    assert.equal(seen[1].searchParams.get('allowed_outputs'), '[2,3]');
+    assert.deepEqual(seen[1].searchParams.getAll('access_output[]'), ['2', '3']);
   } finally {
     config.xuiAllowedOutputs = previous;
   }
 });
 
-test('edit_line lee la línea y reenvía todos los campos junto con el cambio', async () => {
+test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', async () => {
   const line = {
     id: 7,
     username: 'ana',
@@ -144,12 +156,8 @@ test('edit_line lee la línea y reenvía todos los campos junto con el cambio', 
     allowed_ua: '[]',
     admin_notes: 'nota interna',
     reseller_notes: 'nota reseller',
-    is_restreamer: '0',
-    force_server_id: '0',
-    contact: 'ana@example',
     created_at: '2026-01-01 00:00:00',
     active_connections: '4',
-    last_ip: '9.9.9.9',
   };
   const seen = [];
   xui.setTransport(async (url) => {
@@ -164,59 +172,84 @@ test('edit_line lee la línea y reenvía todos los campos junto con el cambio', 
   const previous = config.xuiAllowedOutputs;
   config.xuiAllowedOutputs = '1,2,3';
   try {
-    await xui.editLine('7', { password: 'nueva', exp_date: '2026-06-01 12:00' });
+    await xui.editLine('7', { exp_date: '2026-06-01 12:00', bouquets_selected: '[]' });
   } finally {
     config.xuiAllowedOutputs = previous;
   }
 
-  assert.deepEqual(seen.map((url) => url.searchParams.get('action')), ['get_line', 'edit_line']);
-  assert.equal(seen[0].searchParams.get('id'), '7');
+  assert.deepEqual(seen.map((url) => url.searchParams.get('action')), ['get_line', 'edit_line', 'get_line']);
   const edit = seen[1].searchParams;
   assert.equal(edit.get('id'), '7');
   assert.equal(edit.get('username'), 'ana');
-  assert.equal(edit.get('password'), 'nueva');
+  assert.equal(edit.get('password'), 'secret');
   assert.equal(edit.get('exp_date'), '2026-06-01 12:00');
-  assert.equal(edit.get('bouquets_selected'), '[10,11]');
-  assert.equal(edit.get('bouquet'), null);
+  assert.equal(edit.get('bouquets_selected'), '["10","11"]');
   assert.equal(edit.get('max_connections'), '2');
   assert.equal(edit.get('is_trial'), '0');
   assert.equal(edit.get('enabled'), '1');
   assert.equal(edit.get('admin_enabled'), '1');
   assert.equal(edit.get('member_id'), '3');
-  assert.equal(edit.get('allowed_outputs'), '[]');
+  assert.equal(edit.get('allowed_outputs'), null);
+  assert.deepEqual(edit.getAll('access_output[]'), ['1', '2', '3']);
   assert.equal(edit.get('allowed_ips'), '["1.2.3.4"]');
   assert.equal(edit.get('allowed_ua'), '[]');
+  assert.equal(edit.get('notes'), 'nota interna');
   assert.equal(edit.get('admin_notes'), 'nota interna');
   assert.equal(edit.get('reseller_notes'), 'nota reseller');
-  assert.equal(edit.get('is_restreamer'), '0');
-  assert.equal(edit.get('force_server_id'), '0');
-  assert.equal(edit.get('contact'), 'ana@example');
   assert.equal(edit.get('created_at'), null);
-  assert.equal(edit.get('active_connections'), null);
-  assert.equal(edit.get('last_ip'), null);
 
-  await xui.enableLine('7');
-  const enabled = seen[3].searchParams;
-  assert.equal(seen[2].searchParams.get('action'), 'get_line');
-  assert.equal(enabled.get('action'), 'edit_line');
-  assert.equal(enabled.get('enabled'), '1');
-  assert.equal(enabled.get('username'), 'ana');
-  assert.equal(enabled.get('password'), 'secret');
-  assert.equal(enabled.get('bouquets_selected'), '[10,11]');
-  assert.equal(enabled.get('allowed_outputs'), '[]');
+  line.allowed_outputs = '[4,5]';
+  seen.length = 0;
+  await xui.editLine('7', { password: 'nueva' });
+  assert.deepEqual(seen[1].searchParams.getAll('access_output[]'), ['4', '5']);
+  assert.equal(seen[1].searchParams.get('password'), 'nueva');
+  assert.equal(seen[1].searchParams.get('username'), 'ana');
+  assert.equal(seen[1].searchParams.get('bouquets_selected'), '["10","11"]');
+  assert.equal(seen[1].searchParams.get('is_trial'), '0');
 
+  seen.length = 0;
   await xui.disableLine('7');
-  const disabled = seen[5].searchParams;
-  assert.equal(seen[4].searchParams.get('action'), 'get_line');
-  assert.equal(disabled.get('action'), 'edit_line');
+  const disabled = seen[1].searchParams;
+  assert.deepEqual(seen.map((url) => url.searchParams.get('action')), ['get_line', 'edit_line', 'get_line']);
   assert.equal(disabled.get('enabled'), '0');
-  assert.equal(disabled.get('admin_enabled'), '1');
   assert.equal(disabled.get('username'), 'ana');
   assert.equal(disabled.get('password'), 'secret');
-  assert.equal(disabled.get('exp_date'), '2026-05-01 10:00');
-  assert.equal(disabled.get('max_connections'), '2');
+  assert.equal(disabled.get('bouquets_selected'), '["10","11"]');
   assert.equal(disabled.get('is_trial'), '0');
-  assert.equal(disabled.get('allowed_outputs'), '[]');
+  assert.deepEqual(disabled.getAll('access_output[]'), ['4', '5']);
+});
+
+test('edit_line falla si después el usuario o los bouquets no coinciden', async () => {
+  const line = {
+    id: 7,
+    username: 'ana',
+    password: 'secret',
+    exp_date: '2026-05-01 10:00',
+    bouquet: '[10,11]',
+    max_connections: '1',
+    is_trial: '0',
+    enabled: '1',
+    admin_enabled: '1',
+    member_id: '3',
+    allowed_outputs: '[1,2,3]',
+  };
+  let reads = 0;
+  const seen = [];
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    seen.push(action);
+    if (action === 'get_line') {
+      reads += 1;
+      const data = reads === 1 ? line : { ...line, username: '', bouquet: '[]' };
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data }) };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS' }) };
+  });
+  await assert.rejects(
+    () => xui.editLine('7', { exp_date: '2026-08-01 00:00' }),
+    /no conservó el usuario o los bouquets/
+  );
+  assert.deepEqual(seen, ['get_line', 'edit_line', 'get_line']);
 });
 
 test('edit_line no escribe si get_line falla', async () => {

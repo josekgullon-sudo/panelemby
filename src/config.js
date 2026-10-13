@@ -55,7 +55,8 @@ const config = {
   // Certificado autofirmado (IP directa). Solo afecta a las peticiones XUI.
   xuiInsecureTls: flag('XUI_INSECURE_TLS'),
   xuiMemberId: optional('XUI_MEMBER_ID'),
-  // Ids de salida (HLS, MPEG-TS, RTMP). Vacío = 1,2,3. XUI no los copia del paquete.
+  // Ids de salida (HLS, MPEG-TS, RTMP) como access_output[]=1&access_output[]=2.
+  // Vacío = 1,2,3. allowed_outputs y output_formats este XUI los ignora.
   xuiAllowedOutputs: optional('XUI_ALLOWED_OUTPUTS'),
   // URL Xtream/M3U que ve el cliente. No es la URL del admin.
   xuiPublicUrl: optional('XUI_PUBLIC_URL').replace(/\/+$/, ''),
