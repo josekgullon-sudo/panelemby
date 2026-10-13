@@ -1,5 +1,5 @@
 /* ============================================================
-   Totalflix EMBY — tema oscuro
+   Totalflix — tema oscuro
    Paleta: carbón azulado + verde Totalflix; ámbar y rojo para tiempo.
    Display: Archivo · Cuerpo/datos: Inter
    ============================================================ */
@@ -74,20 +74,13 @@ code {
   color: var(--text);
 }
 .wordmark-total em { font-style: normal; color: var(--green); }
-.wordmark-emby {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--bg);
-  background: var(--green);
-  padding: 2px 7px;
-  border-radius: 4px;
-  transform: translateY(-1px);
+.badge-muted {
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--line-soft);
 }
 .wordmark-lg { justify-content: center; margin-bottom: 6px; }
 .wordmark-lg .wordmark-total { font-size: 26px; }
-.wordmark-lg .wordmark-emby { font-size: 12px; padding: 3px 9px; }
 
 /* ---------- Estructura ---------- */
 

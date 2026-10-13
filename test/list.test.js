@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
 const db = require('../src/db/database');
 const config = require('../src/config');
-const { listAccounts } = require('../src/services/accounts');
+const { listAccounts, dueServices } = require('../src/services/accounts');
 
 const hash = bcrypt.hashSync('secret', 4);
 const adminId = db.prepare(
@@ -119,6 +119,50 @@ test('un reseller solo ve sus cuentas y no puede ordenar ni filtrar por otro', (
   assert.ok(own.list.every((row) => row.owner_id === resellerId));
   assert.doesNotMatch(own.href(2), /reseller=/);
   assert.match(own.href(2), /^\/reseller\/cuentas\?/);
+});
+
+test('la primera página son activas aunque haya caducadas más antiguas', () => {
+  const page = listAccounts({ tam: '25' });
+  assert.equal(page.sort, 'activas');
+  assert.equal(page.list[0].username, 'u01');
+  assert.ok(page.list.every((row) => row.status === 'active'));
+  assert.equal(page.href(2).includes('orden='), false);
+});
+
+test('el filtro de tipo separa prueba y normal', () => {
+  db.prepare("UPDATE emby_accounts SET is_trial = 1 WHERE username IN ('u02', 'u04')").run();
+  const trials = listAccounts({ tipo: 'prueba', tam: '100' });
+  assert.equal(trials.total, 2);
+  assert.ok(trials.list.every((row) => row.is_trial === 1));
+  const normals = listAccounts({ tipo: 'normal', tam: '100' });
+  assert.equal(normals.total, 58);
+  assert.match(trials.href(1), /tipo=prueba/);
+});
+
+test('una cuenta solo XUI no marca Emby por tener la fecha vacía', () => {
+  const soon = new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  assert.deepEqual(dueServices({
+    has_emby: 0,
+    emby_user_id: null,
+    emby_expires_at: null,
+    emby_cut: 0,
+    xui_line_id: '9',
+    xui_expires_at: soon,
+    is_trial: 1,
+  }), ['XUI']);
+  assert.deepEqual(dueServices({
+    has_emby: 0,
+    emby_user_id: null,
+    emby_expires_at: null,
+    xui_line_id: '9',
+    xui_expires_at: '2027-01-08 13:04:14',
+  }), []);
+  assert.deepEqual(dueServices({
+    emby_user_id: 'e1',
+    emby_expires_at: soon,
+    xui_line_id: '9',
+    xui_expires_at: '2027-01-08 13:04:14',
+  }), ['Emby']);
 });
 
 test('hay índices para el listado abierto', () => {

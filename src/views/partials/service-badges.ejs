@@ -7,4 +7,5 @@
   <% if (a.maxplayer_user_id) { %><span class="badge svc-max">Max Player</span><% } %>
   <% if (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) { %><span class="badge badge-warn">Max Player pendiente</span><% } %>
   <% if (a.maxplayer_domain_id) { %><span class="badge svc-domain"><%= domainLabel(a.maxplayer_domain_id) %></span><% } %>
+  <% if (a.is_trial) { %><span class="badge badge-warn">prueba</span><% } else { %><span class="badge badge-muted">normal</span><% } %>
 </span>

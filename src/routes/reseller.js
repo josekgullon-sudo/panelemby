@@ -27,7 +27,8 @@ router.get('/', (req, res) => {
   };
   const upcoming = db
     .prepare(
-      `SELECT a.username, a.expires_at, pl.duration_days
+      `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
+              a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial, pl.duration_days
        FROM emby_accounts a LEFT JOIN plans pl ON pl.id = a.plan_id
        WHERE a.owner_id = ? AND a.status = 'active' AND a.expires_at <= datetime('now', '+7 days')
        ORDER BY a.expires_at LIMIT 20`
@@ -36,7 +37,13 @@ router.get('/', (req, res) => {
   const movements = db
     .prepare('SELECT * FROM credit_transactions WHERE reseller_id = ? ORDER BY id DESC LIMIT 10')
     .all(req.user.id);
-  res.render('reseller/dashboard', { stats, upcoming, movements, daysLeft: accounts.daysLeft });
+  res.render('reseller/dashboard', {
+    stats,
+    upcoming,
+    movements,
+    daysLeft: accounts.daysLeft,
+    dueServices: accounts.dueServices,
+  });
 });
 
 // --- Sus cuentas ---
@@ -69,6 +76,7 @@ router.get(
     estado: pageData.estado,
     servicio: pageData.servicio,
     dominio: pageData.dominio,
+    tipo: pageData.tipo,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,

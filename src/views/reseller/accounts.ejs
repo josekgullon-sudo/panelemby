@@ -12,7 +12,7 @@
   </div>
 
   <% if (list.length === 0) { %>
-    <p class="empty"><%= q || estado || servicio || dominio ? 'Ninguna cuenta coincide con el filtro.' : 'Aún no has creado ninguna cuenta. Da de alta la primera arriba.' %></p>
+    <p class="empty"><%= q || estado || servicio || dominio || tipo ? 'Ninguna cuenta coincide con el filtro.' : 'Aún no has creado ninguna cuenta. Da de alta la primera arriba.' %></p>
   <% } else { %>
   <table class="accounts-table">
     <thead><tr><th>Cuenta</th><th>Servicios</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>

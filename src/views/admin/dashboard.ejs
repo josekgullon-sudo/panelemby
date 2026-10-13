@@ -37,11 +37,12 @@
       <p class="empty">Nada caduca en los próximos 7 días. Todo en orden.</p>
     <% } else { %>
       <table>
-        <thead><tr><th>Cuenta</th><th>Reseller</th><th>Vence</th><th class="th-meter">Tiempo restante</th></tr></thead>
+        <thead><tr><th>Cuenta</th><th>Servicio</th><th>Reseller</th><th>Vence</th><th class="th-meter">Tiempo restante</th></tr></thead>
         <tbody>
         <% upcoming.forEach(u => { const d = daysLeft(u.expires_at); %>
           <tr>
             <td class="td-strong"><%= u.username %></td>
+            <td><%- include('../partials/due-badges', { account: u }) %></td>
             <td><%= u.owner %></td>
             <td><%= d <= 0 ? 'Hoy' : u.expires_at.slice(0, 10) %></td>
             <td class="td-meter">

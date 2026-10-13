@@ -56,6 +56,20 @@ function daysLeft(expiresAt) {
   return Math.ceil(ms / (24 * 3600 * 1000));
 }
 
+// Servicios cuya fecha cae en los próximos 7 días. Una fecha Emby vacía
+// (cuenta solo XUI, has_emby=0) no cuenta como caducada.
+function dueServices(account) {
+  const horizon = toSqlDate(new Date(Date.now() + 7 * 24 * 3600 * 1000));
+  const services = [];
+  if (account.emby_user_id && account.emby_expires_at && account.emby_expires_at <= horizon) {
+    services.push('Emby');
+  }
+  if (account.xui_line_id && account.xui_expires_at && account.xui_expires_at <= horizon) {
+    services.push('XUI');
+  }
+  return services;
+}
+
 function unixSeconds(sqlDate) {
   return Math.floor(parseSqlDate(sqlDate).getTime() / 1000);
 }
@@ -644,8 +658,8 @@ function persistNewAccount({
            emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
            has_emby, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
            maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, provision_error,
-           emby_expires_at, xui_expires_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           emby_expires_at, xui_expires_at, is_trial
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         made.embyId,
@@ -667,7 +681,8 @@ function persistNewAccount({
         made.domainId || null,
         provisionError,
         embyExpiresAt,
-        xuiExpiresAt
+        xuiExpiresAt,
+        packageRow && packageRow.is_trial ? 1 : 0
       );
     if (owner.role === 'reseller') {
       deductCredits(owner.id, cost, 'create_account', info.lastInsertRowid, owner.id);
@@ -1143,7 +1158,10 @@ function accountListFilters(query) {
     clauses.push('a.maxplayer_domain_id = ?');
     params.push(String(config.maxplayerDomainCisneId));
   }
-  return { servicio, dominio, clauses, params };
+  const tipo = ['prueba', 'normal'].includes(query.tipo) ? query.tipo : '';
+  if (tipo === 'prueba') clauses.push('a.is_trial = 1');
+  if (tipo === 'normal') clauses.push('a.is_trial = 0');
+  return { servicio, dominio, tipo, clauses, params };
 }
 
 const PAGE_SIZES = [25, 50, 100];
@@ -1175,9 +1193,10 @@ function accountPageHref(base, state, page) {
   if (state.estado) params.set('estado', state.estado);
   if (state.servicio) params.set('servicio', state.servicio);
   if (state.dominio) params.set('dominio', state.dominio);
+  if (state.tipo) params.set('tipo', state.tipo);
   if (state.reseller) params.set('reseller', String(state.reseller));
+  if (state.sort && state.sort !== 'activas') params.set('orden', state.sort);
   if (state.pageSize !== 50) params.set('tam', String(state.pageSize));
-  if (state.sort !== 'vence') params.set('orden', state.sort);
   if (state.dir !== 'asc') params.set('dir', state.dir);
   if (page > 1) params.set('pagina', String(page));
   const qs = params.toString();
@@ -1192,9 +1211,10 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   const estado = ['active', 'expired'].includes(src.estado) ? src.estado : '';
   const filters = accountListFilters(src);
   const pageSize = PAGE_SIZES.includes(parseInt(src.tam, 10)) ? parseInt(src.tam, 10) : 50;
-  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'vence';
+  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'activas';
   if (ownerId && sort === 'reseller') sort = 'vence';
-  const dir = src.dir === 'desc' ? 'desc' : 'asc';
+  let dir = src.dir === 'desc' ? 'desc' : 'asc';
+  if (sort === 'activas') dir = 'asc';
   let reseller = '';
   if (!ownerId) {
     const raw = parseInt(src.reseller, 10);
@@ -1239,10 +1259,14 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   if (page > pages) page = pages;
   const offset = (page - 1) * pageSize;
   const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
+  // Sin orden explícito, las caducadas (fecha más vieja) no ocupan la primera página.
+  const orderBy = sort === 'activas'
+    ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, a.expires_at ASC, a.id ASC`
+    : `${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}`;
   const list = db.prepare(
     `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
      ${from}
-     ORDER BY ${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}
+     ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`
   ).all(...params, pageSize, offset);
 
@@ -1251,6 +1275,7 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
     estado,
     servicio: filters.servicio,
     dominio: filters.dominio,
+    tipo: filters.tipo,
     reseller,
     pageSize,
     sort,
@@ -1526,6 +1551,7 @@ module.exports = {
   toSqlDate,
   parseSqlDate,
   daysLeft,
+  dueServices,
   formatDuration,
   addCredits,
   parseServices,

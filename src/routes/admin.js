@@ -63,7 +63,9 @@ router.get('/', (req, res) => {
     .all();
   const upcoming = db
     .prepare(
-      `SELECT a.username, a.expires_at, p.username AS owner, pl.duration_days
+      `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
+              a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial,
+              p.username AS owner, pl.duration_days
        FROM emby_accounts a
        JOIN panel_users p ON p.id = a.owner_id
        LEFT JOIN plans pl ON pl.id = a.plan_id
@@ -71,7 +73,14 @@ router.get('/', (req, res) => {
        ORDER BY a.expires_at LIMIT 20`
     )
     .all();
-  res.render('admin/dashboard', { stats, byReseller, upcoming, recent, daysLeft: accounts.daysLeft });
+  res.render('admin/dashboard', {
+    stats,
+    byReseller,
+    upcoming,
+    recent,
+    daysLeft: accounts.daysLeft,
+    dueServices: accounts.dueServices,
+  });
 });
 
 // --- Resellers ---
@@ -292,6 +301,7 @@ router.get(
     estado: pageData.estado,
     servicio: pageData.servicio,
     dominio: pageData.dominio,
+    tipo: pageData.tipo,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,

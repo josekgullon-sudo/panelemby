@@ -12,6 +12,11 @@
     <option value="maxplayer" <%= servicio === 'maxplayer' ? 'selected' : '' %>>Max Player</option>
     <option value="totalflix" <%= servicio === 'totalflix' ? 'selected' : '' %>>TotalFlix</option>
   </select>
+  <select name="tipo" aria-label="Tipo">
+    <option value="">Prueba y normal</option>
+    <option value="prueba" <%= tipo === 'prueba' ? 'selected' : '' %>>Prueba</option>
+    <option value="normal" <%= tipo === 'normal' ? 'selected' : '' %>>Normal</option>
+  </select>
   <select name="dominio" aria-label="Servidor Max Player">
     <option value="">Cualquier servidor</option>
     <option value="pato" <%= dominio === 'pato' ? 'selected' : '' %>>PATO</option>
@@ -26,6 +31,7 @@
   </select>
   <% } %>
   <select name="orden" aria-label="Orden">
+    <option value="activas" <%= sort === 'activas' ? 'selected' : '' %>>Activas primero</option>
     <option value="vence" <%= sort === 'vence' ? 'selected' : '' %>>Vencimiento</option>
     <option value="cuenta" <%= sort === 'cuenta' ? 'selected' : '' %>>Cuenta</option>
     <option value="creada" <%= sort === 'creada' ? 'selected' : '' %>>Creación</option>

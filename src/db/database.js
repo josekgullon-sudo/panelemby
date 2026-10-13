@@ -50,6 +50,7 @@ ensureColumn('emby_accounts', 'emby_expires_at', 'ALTER TABLE emby_accounts ADD 
 ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN xui_expires_at TEXT');
 ensureColumn('emby_accounts', 'emby_cut', 'ALTER TABLE emby_accounts ADD COLUMN emby_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN xui_cut INTEGER NOT NULL DEFAULT 0');
+ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
 ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
 
 db.exec(`
@@ -61,6 +62,8 @@ db.exec(`
    WHERE status = 'expired' AND emby_user_id IS NOT NULL AND emby_cut = 0;
   UPDATE emby_accounts SET xui_cut = 1
    WHERE status = 'expired' AND xui_line_id IS NOT NULL AND xui_cut = 0;
+  UPDATE emby_accounts SET is_trial = 1
+   WHERE is_trial = 0 AND xui_package_id IN (SELECT id FROM xui_packages WHERE is_trial = 1);
 `);
 ensureColumn('plans', 'xui_credit_cost', 'ALTER TABLE plans ADD COLUMN xui_credit_cost INTEGER NOT NULL DEFAULT 0');
 ensureColumn(

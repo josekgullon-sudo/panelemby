@@ -210,8 +210,8 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           `INSERT INTO emby_accounts (
              username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
              has_emby, xui_line_id, xui_package_id, player_kind, maxplayer_user_id, maxplayer_list_ok,
-             maxplayer_domain_id, xui_expires_at, xui_cut
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'importado de XUI', 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+             maxplayer_domain_id, xui_expires_at, xui_cut, is_trial
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'importado de XUI', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           line.username,
           bcrypt.hashSync(password, 10),
@@ -227,7 +227,8 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           player ? 1 : 0,
           player && player.domainId ? player.domainId : null,
           timing.expiresAt,
-          timing.past ? 1 : 0
+          timing.past ? 1 : 0,
+          line.is_trial ? 1 : 0
         );
       } else if (!dryRun) {
         const packageId = row.xui_package_id || line.package_id || null;
@@ -241,7 +242,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           `UPDATE emby_accounts
            SET xui_line_id = ?, xui_expires_at = ?, expires_at = ?, status = ?,
                player_kind = ?, maxplayer_user_id = ?, maxplayer_domain_id = ?, maxplayer_list_ok = ?,
-               xui_package_id = ?, xui_cut = ?, owner_id = ?,
+               xui_package_id = ?, xui_cut = ?, owner_id = ?, is_trial = ?,
                password_enc = COALESCE(password_enc, ?)
            WHERE id = ?`
         ).run(
@@ -256,6 +257,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           packageId,
           timing.past ? 1 : 0,
           owner.id,
+          line.is_trial ? 1 : 0,
           line.password ? secret.encrypt(line.password) : null,
           row.id
         );
