@@ -3,7 +3,8 @@
 //
 // Formato confirmado por el panel: GET {XUI_API_URL}?api_key=KEY&action=ACTION&...
 // Acciones de línea según la admin API de XUI.one (create_line, edit_line,
-// delete_line, enable_line, disable_line, get_line, get_packages).
+// delete_line, get_line, get_packages). enable y disable también pasan por
+// edit_line: en este XUI esa acción reescribe la línea entera.
 
 const http = require('http');
 const https = require('https');
@@ -426,12 +427,94 @@ async function createLine({ username, password, expDate, maxConnections, package
   return { id: String(id), raw: row };
 }
 
+// Campos de sesión o de auditoría. Reenviarlos no forma parte de la línea y
+// pueden pisar columnas que el formulario no edita.
+const LINE_EDIT_SKIP = new Set([
+  'id', 'line_id', 'user_id',
+  'created_at', 'updated_at', 'date_created',
+  'last_activity', 'last_activity_array', 'activity_id',
+  'active_connections', 'active_cons', 'connections',
+  'stream_id', 'stream_display_name', 'stream_name',
+  'date_start', 'date_end',
+  'user_ip', 'last_ip', 'geoip_country_code',
+  'user_agent',
+  'online', 'status',
+  'owner', 'owner_name', 'member_username',
+]);
+
+// get_line nombra la columna; edit_line espera el nombre del formulario.
+const LINE_EDIT_ALIAS = {
+  bouquet: 'bouquets_selected',
+  bouquets: 'bouquets_selected',
+  expdate: 'exp_date',
+};
+
+function lineRow(raw) {
+  if (raw == null || raw === '') return null;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== 'object') return null;
+  return row;
+}
+
+function editScalar(value) {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (typeof value === 'object') return undefined;
+  return value;
+}
+
+// Copia la línea tal cual. Un array se manda como JSON porque la petición es
+// un query; no se reinterpreta allowed_outputs (el formato se confirma aparte).
+function lineToEditParams(row) {
+  const params = {};
+  for (const [key, value] of Object.entries(row)) {
+    const name = LINE_EDIT_ALIAS[key];
+    if (!name) continue;
+    const scalar = editScalar(value);
+    if (scalar === undefined || scalar === '') continue;
+    if (params[name] == null || params[name] === '') params[name] = scalar;
+  }
+  for (const [key, value] of Object.entries(row)) {
+    if (LINE_EDIT_SKIP.has(key) || LINE_EDIT_ALIAS[key]) continue;
+    const scalar = editScalar(value);
+    if (scalar === undefined) continue;
+    params[key] = scalar;
+  }
+  return params;
+}
+
+function applyExpDate(params) {
+  const value = params.exp_date;
+  if (value == null || value === '' || value === 0 || value === '0') {
+    if (value === 0 || value === '0') params.exp_date = '0';
+    return;
+  }
+  params.exp_date = formatExpDate(value);
+}
+
 async function editLine(id, fields) {
-  const params = Object.assign({ id }, fields);
-  // Un edit_line sin esta lista (contraseña, renovar, ampliar, cambiar plan)
-  // vuelve a dejar allowed_outputs en [] y la línea deja de reproducir.
-  params.allowed_outputs = allowedOutputsParam();
-  if (params.exp_date != null && params.exp_date !== '') params.exp_date = formatExpDate(params.exp_date);
+  let raw;
+  try {
+    raw = await getLine(id);
+  } catch (err) {
+    throw new XuiError(
+      `No se pudo leer la línea ${id} antes de editarla (${err && err.message ? err.message : err})`,
+      (err && err.status) || 0
+    );
+  }
+  const row = lineRow(raw);
+  if (!row || !row.username) {
+    throw new XuiError(`get_line no devolvió la línea ${id}`, 404);
+  }
+  // edit_line reescribe la línea. Lo que no se reenvía vuelve a cero:
+  // usuario, contraseña, bouquet, fecha, conexiones, prueba y el resto.
+  const params = lineToEditParams(row);
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (key === 'id' || value === undefined) continue;
+    params[key] = value;
+  }
+  params.id = String(id);
+  applyExpDate(params);
   return request('edit_line', params);
 }
 
@@ -490,11 +573,11 @@ async function deleteLine(id) {
 }
 
 async function enableLine(id) {
-  return request('enable_line', { id });
+  return editLine(id, { enabled: 1 });
 }
 
 async function disableLine(id) {
-  return request('disable_line', { id });
+  return editLine(id, { enabled: 0 });
 }
 
 function setTransport(fn) {
