@@ -38,8 +38,8 @@
       <div class="svc-panel emby-extra">
         <p class="svc-kicker">Emby</p>
         <div class="field">
-          <label for="plan-id">Plan y duración</label>
-          <select name="plan_id" id="plan-id" aria-label="Plan Emby">
+          <label for="plan-id">Duración Emby</label>
+          <select name="plan_id" id="plan-id" aria-label="Duración Emby">
             <% plans.forEach(p => { %>
               <option value="<%= p.id %>"
                 data-days="<%= p.duration_days %>"
@@ -65,7 +65,7 @@
             </span>
           </label>
           <label class="segment-opt <%= maxplayerConfigured ? '' : 'is-disabled' %>">
-            <input type="radio" name="player_kind" value="maxplayer" <%= maxplayerConfigured ? '' : 'disabled' %>>
+            <input type="radio" name="player_kind" value="maxplayer" <%= maxplayerConfigured ? '' : 'disabled' %> <%= maxplayerConfigured ? '' : 'data-unavailable="1"' %>>
             <span class="segment-card">
               <span class="segment-title">Max Player</span>
               <span class="segment-sub"><%= maxplayerConfigured ? 'Línea XUI y usuario en la app' : 'Falta la API de Max Player' %></span>
@@ -74,32 +74,10 @@
         </div>
 
         <div class="field">
-          <label for="xui-plan">Duración de la línea</label>
-          <select name="xui_plan_id" id="xui-plan" aria-label="Duración XUI">
-            <% plans.forEach(p => { %>
-              <option value="<%= p.id %>"
-                data-days="<%= p.duration_days %>"
-                data-xui="<%= p.xui_credit_cost || 0 %>"
-                data-max="<%= p.maxplayer_credit_cost || 0 %>">
-                <%= p.name %> · <%= formatDuration(p.duration_days) %>
-              </option>
-            <% }) %>
+          <label for="xui-package">Duración XUI</label>
+          <select id="xui-package" name="xui_package_id" aria-label="Duración XUI">
+            <%- include('./xui-duration-options') %>
           </select>
-        </div>
-
-        <div class="field">
-          <label for="xui-package">Paquete XUI</label>
-          <select id="xui-package" name="xui_package_id" aria-label="Paquete XUI">
-            <% if (packages.length === 0) { %>
-              <option value="">No hay paquetes todavía</option>
-            <% } %>
-            <% packages.forEach(pack => { %>
-              <option value="<%= pack.id %>" data-cost="<%= pack.credit_cost == null ? '' : pack.credit_cost %>">
-                <%= pack.package_name %><%= pack.is_trial ? ' · prueba' : '' %><%= pack.max_connections ? ' · ' + pack.max_connections + ' conex.' : '' %><%= pack.credit_cost == null ? '' : ' · ' + pack.credit_cost + ' cr.' %>
-              </option>
-            <% }) %>
-          </select>
-          <p class="hint">El paquete pone los canales y las conexiones. XUI no guarda el id del paquete: lo recordamos nosotros. Si el paquete no tiene precio, se usa el coste XUI de la duración elegida.</p>
         </div>
         <p class="expiry-preview" id="xui-expiry" aria-live="polite"></p>
       </div>
@@ -119,11 +97,10 @@
   var emby = document.getElementById('service-emby');
   var xui = document.getElementById('service-xui');
   var plan = document.getElementById('plan-id');
-  var xuiPlan = document.getElementById('xui-plan');
   var pack = document.getElementById('xui-package');
   var line = document.getElementById('cost-line');
   function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
-  function opt(select) { return select && select.options[select.selectedIndex]; }
+  function opt(select) { return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null; }
   function player() {
     var picked = form.querySelector('input[name="player_kind"]:checked');
     return picked ? picked.value : 'totalflix';
@@ -136,28 +113,46 @@
       timeStyle: 'short'
     }).format(new Date(ms));
   }
+  function xuiDays(xuiOpt, embyOpt) {
+    var raw = xuiOpt.getAttribute('data-days');
+    if (raw) return Number(raw);
+    if (emby.checked && embyOpt && embyOpt.getAttribute('data-days')) return Number(embyOpt.getAttribute('data-days'));
+    var fallback = xuiOpt.getAttribute('data-fallback-days');
+    return fallback ? Number(fallback) : 30;
+  }
   function paint() {
     var parts = [];
     var total = 0;
+    var embyOn = !!(emby && emby.checked);
+    var xuiOn = !!(xui && xui.checked);
+    if (plan) plan.disabled = !embyOn;
+    if (pack) pack.disabled = !xuiOn;
+    form.querySelectorAll('input[name="player_kind"]').forEach(function (input) {
+      if (input.getAttribute('data-unavailable') === '1') return;
+      input.disabled = !xuiOn;
+    });
     var embyOpt = opt(plan);
-    var xuiOpt = opt(xuiPlan);
-    if (emby.checked && embyOpt) {
+    var xuiOpt = opt(pack);
+    if (embyOn && embyOpt) {
       var e = num(embyOpt.getAttribute('data-emby'));
       total += e;
       parts.push('Emby ' + e);
       document.getElementById('emby-expiry').textContent = 'Caduca el ' + when(embyOpt.getAttribute('data-days'));
     }
-    if (xui.checked && xuiOpt) {
-      var custom = pack && pack.selectedOptions[0] ? pack.selectedOptions[0].getAttribute('data-cost') : '';
-      var x = custom === '' || custom == null ? num(xuiOpt.getAttribute('data-xui')) : num(custom);
+    if (xuiOn && xuiOpt && xuiOpt.value) {
+      var custom = xuiOpt.getAttribute('data-cost');
+      var useEmby = !xuiOpt.getAttribute('data-days') && embyOn && embyOpt;
+      var x = custom === '' || custom == null
+        ? num(useEmby ? embyOpt.getAttribute('data-xui') : xuiOpt.getAttribute('data-fallback-cost'))
+        : num(custom);
       total += x;
       parts.push('XUI ' + x);
       if (player() === 'maxplayer') {
-        var m = num(xuiOpt.getAttribute('data-max'));
+        var m = num(useEmby ? embyOpt.getAttribute('data-max') : xuiOpt.getAttribute('data-max'));
         total += m;
         parts.push('Max Player ' + m);
       }
-      document.getElementById('xui-expiry').textContent = 'Caduca el ' + when(xuiOpt.getAttribute('data-days'));
+      document.getElementById('xui-expiry').textContent = 'Caduca el ' + when(xuiDays(xuiOpt, embyOpt));
     }
     var who = total === 1 ? 'crédito' : 'créditos';
     line.textContent = parts.length

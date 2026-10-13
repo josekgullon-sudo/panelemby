@@ -96,7 +96,7 @@ router.post(
   wrap(async (req, res) => {
     try {
       const services = accounts.parseServices(req.body);
-      const planId = services.emby ? parseInt(req.body.plan_id, 10) : parseInt(req.body.xui_plan_id, 10);
+      const planId = services.emby ? parseInt(req.body.plan_id, 10) : null;
       const created = await accounts.createAccount({
         username: req.body.username,
         password: req.body.password,
@@ -301,7 +301,8 @@ router.post(
         accountId: parseInt(req.params.id, 10),
         actor: req.user,
         service: req.body.service,
-        planId: parseInt(req.body.plan_id, 10),
+        planId: parseInt(req.body.plan_id, 10) || null,
+        packageId: req.body.xui_package_id,
       });
       req.setFlash('ok', `${result.service === 'emby' ? 'Emby' : 'XUI'} ampliado hasta ${String(result.expiresAt).slice(0, 16)}.`);
       res.redirect(back);

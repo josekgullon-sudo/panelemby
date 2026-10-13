@@ -43,7 +43,7 @@ function install(overrides = {}) {
           is_trial: false,
           is_official: true,
           trial_duration: null,
-          official_duration: 30,
+          official_duration: 720,
           max_connections: 2,
           bouquets: ['1', '2'],
         },
@@ -181,11 +181,95 @@ test('TotalFlix crea la línea y no llama a Max Player', async () => {
   assert.equal(row.player_kind, 'totalflix');
   assert.equal(row.has_emby, 0);
   const card = accounts.connectionCard(created.id, actor());
-  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📡 TOTALFLIX/);
+  assert.equal(card.message.replaceAll(card.username, '').toLowerCase().includes('xui'), false);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   assert.equal(card.message.includes('m3u'), false);
   assert.match(card.m3u, /iptv\.test:8080/);
   assert.match(card.m3u, /username=solo\.xui/);
+  const days = (accounts.parseSqlDate(row.xui_expires_at).getTime() - Date.now()) / 86400000;
+  assert.ok(days > 29 && days < 31, `la duración sale del paquete, no de otro selector: ${days}`);
+});
+
+test('la duración de XUI es la del paquete aunque el plan de Emby sea otro', async () => {
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  db.prepare(
+    `INSERT INTO xui_packages (
+       id, package_name, is_trial, is_official, trial_duration, official_duration,
+       max_connections, credit_cost, is_listed
+     ) VALUES ('year', '1 AÑO- 1 CONEXION', 0, 1, NULL, 8760, 1, 9, 1)`
+  ).run();
+  const calls = install({
+    xui: {
+      createLine: async (body) => {
+        calls.push(['xui.create', body.username, body.packageId, body.maxConnections, body.expDate]);
+        return { id: 'line-year' };
+      },
+    },
+  });
+  const created = await accounts.createAccount({
+    username: 'anual.xui',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: 'year' },
+  });
+  assert.equal(created.cost, 9);
+  const row = db.prepare('SELECT xui_expires_at FROM emby_accounts WHERE id = ?').get(created.id);
+  const days = (accounts.parseSqlDate(row.xui_expires_at).getTime() - Date.now()) / 86400000;
+  assert.ok(days > 360 && days < 370, String(days));
+  const call = calls.find((item) => item[0] === 'xui.create');
+  assert.equal(call[2], 'year');
+  assert.equal(call[3], 1);
+});
+
+test('un paquete sin duración hereda la de Emby y, si no hay Emby, 30 días', async () => {
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  db.prepare(
+    `INSERT INTO xui_packages (
+       id, package_name, is_trial, is_official, trial_duration, official_duration,
+       max_connections, credit_cost, is_listed
+     ) VALUES ('open', 'Sin duración', 0, 1, NULL, NULL, 1, NULL, 1)`
+  ).run();
+  const withEmby = await accounts.createAccount({
+    username: 'hereda.emby',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: true, xui: true, playerKind: 'totalflix', packageId: 'open' },
+  });
+  const both = db.prepare('SELECT emby_expires_at, xui_expires_at FROM emby_accounts WHERE id = ?').get(withEmby.id);
+  const embyAt = accounts.parseSqlDate(both.emby_expires_at).getTime();
+  const xuiAt = accounts.parseSqlDate(both.xui_expires_at).getTime();
+  assert.ok(Math.abs(embyAt - xuiAt) < 5000);
+  const only = await accounts.createAccount({
+    username: 'hereda.xui',
+    password: 'clave',
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: 'open' },
+  });
+  const row = db.prepare('SELECT xui_expires_at FROM emby_accounts WHERE id = ?').get(only.id);
+  const days = (accounts.parseSqlDate(row.xui_expires_at).getTime() - Date.now()) / 86400000;
+  assert.ok(days > 29 && days < 31, String(days));
+});
+
+test('el formulario de alta y el de ampliar no duplican duración y paquete', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const create = fs.readFileSync(path.join(__dirname, '../src/views/partials/create-account.ejs'), 'utf8');
+  const detail = fs.readFileSync(path.join(__dirname, '../src/views/account-detail.ejs'), 'utf8');
+  assert.equal(create.includes('xui_plan_id'), false);
+  assert.equal(create.includes('Paquete XUI'), false);
+  assert.equal(create.includes('no guarda el id'), false);
+  assert.match(create, /Duración Emby/);
+  assert.match(create, /Duración XUI/);
+  assert.match(create, /emby-expiry/);
+  assert.match(create, /xui-expiry/);
+  assert.equal(detail.includes('Paquete XUI'), false);
+  assert.equal(detail.includes('xui_plan_id'), false);
+  assert.match(detail, /id="extend-xui"/);
+  assert.match(detail, /id="add-xui"/);
+  assert.equal(fs.readFileSync(path.join(__dirname, '../src/views/client/home.ejs'), 'utf8').includes('ampliar'), false);
 });
 
 test('Emby y Max Player juntos guardan los dos ids', async () => {
@@ -406,7 +490,8 @@ test('el texto para copiar junta Emby y XUI sin la M3U', async () => {
   assert.match(card.message, /Servidor: http:\/\/emby\.example/);
   assert.match(card.message, /Puerto: dejar vacío/);
   assert.match(card.message, /Pantallas:/);
-  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📡 TOTALFLIX/);
+  assert.equal(card.message.replaceAll(card.username, '').toLowerCase().includes('xui'), false);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2}\n/);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   assert.equal(/Lista M3U/.test(card.message), false);

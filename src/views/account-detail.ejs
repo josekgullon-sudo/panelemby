@@ -53,12 +53,12 @@
     <form method="post" action="<%= base %>/<%= account.id %>/ampliar" class="form-stack">
       <div class="pop-title">Ampliar XUI</div>
       <input type="hidden" name="service" value="xui">
-      <select name="plan_id" required aria-label="Duración XUI">
-        <% plans.forEach(p => { %>
-          <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.xui_credit_cost || 0 %> cr. XUI</option>
-        <% }) %>
+      <label for="extend-xui">Duración XUI</label>
+      <select name="xui_package_id" id="extend-xui" required aria-label="Duración XUI">
+        <%- include('partials/xui-duration-options') %>
       </select>
-      <p class="hint">Solo mueve la caducidad de la línea. Emby no cambia. Si hay Max Player, se suma su coste.</p>
+      <p class="expiry-preview" id="extend-xui-expiry" data-base="<%= account.xui_expires_at || '' %>" aria-live="polite"></p>
+      <p class="hint">Suma esa duración a la línea. Emby no cambia. Si hay Max Player, se suma su coste.</p>
       <button class="btn btn-primary btn-sm">Ampliar XUI</button>
     </form>
     <% } %>
@@ -85,19 +85,14 @@
     <form method="post" action="<%= base %>/<%= account.id %>/servicio" class="form-stack">
       <div class="pop-title">Crear en XUI</div>
       <input type="hidden" name="service" value="xui">
-      <select name="plan_id" required aria-label="Duración XUI">
-        <% plans.forEach(p => { %>
-          <option value="<%= p.id %>"><%= p.name %> · <%= formatDuration(p.duration_days) %></option>
-        <% }) %>
+      <label for="add-xui">Duración XUI</label>
+      <select name="xui_package_id" id="add-xui" required aria-label="Duración XUI">
+        <%- include('partials/xui-duration-options') %>
       </select>
+      <p class="expiry-preview" id="add-xui-expiry" aria-live="polite"></p>
       <select name="player_kind" aria-label="Tipo de línea">
         <option value="totalflix">TotalFlix</option>
         <% if (maxplayerConfigured) { %><option value="maxplayer">Max Player</option><% } %>
-      </select>
-      <select name="xui_package_id" required aria-label="Paquete XUI">
-        <% packages.forEach(pack => { %>
-          <option value="<%= pack.id %>"><%= pack.package_name %></option>
-        <% }) %>
       </select>
       <button class="btn btn-primary btn-sm">Crear línea XUI</button>
     </form>
@@ -161,4 +156,35 @@
 </section>
 
 <%- include('partials/welcome-modal') %>
+<script>
+(function () {
+  function bind(selectId, previewId) {
+    var select = document.getElementById(selectId);
+    var preview = document.getElementById(previewId);
+    if (!select || !preview) return;
+    function paint() {
+      var opt = select.options[select.selectedIndex];
+      if (!opt || !opt.value) { preview.textContent = ''; return; }
+      var days = opt.getAttribute('data-days') || opt.getAttribute('data-fallback-days');
+      if (!days) { preview.textContent = ''; return; }
+      var baseRaw = preview.getAttribute('data-base');
+      var start = Date.now();
+      if (baseRaw) {
+        var parsed = Date.parse(String(baseRaw).replace(' ', 'T') + 'Z');
+        if (!isNaN(parsed)) start = Math.max(Date.now(), parsed);
+      }
+      var ms = start + Number(days) * 24 * 3600 * 1000;
+      preview.textContent = 'Caduca el ' + new Intl.DateTimeFormat('es-ES', {
+        timeZone: 'Europe/Madrid',
+        dateStyle: 'full',
+        timeStyle: 'short'
+      }).format(new Date(ms));
+    }
+    select.addEventListener('change', paint);
+    paint();
+  }
+  bind('extend-xui', 'extend-xui-expiry');
+  bind('add-xui', 'add-xui-expiry');
+})();
+</script>
 <%- include('partials/footer') %>

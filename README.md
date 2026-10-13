@@ -45,14 +45,14 @@ npm run dev                 # http://localhost:3000, recarga al guardar
 
 ## Emby, XUI y Max Player
 
-En **Cuentas → Nueva cuenta** (admin y reseller) el usuario y la contraseña van arriba. Debajo, dos interruptores. Cada servicio solo se muestra si su interruptor está encendido: Emby (plan, duración y fecha de caducidad) y XUI (paquete, TotalFlix o Max Player, duración y su propia fecha). Emby viene activado. Si activas XUI:
+En **Cuentas → Nueva cuenta** (admin y reseller) el usuario y la contraseña van arriba. Debajo, dos interruptores. Cada bloque, con su duración y su fecha de caducidad, solo se muestra si su interruptor está encendido. Emby tiene **Duración Emby** (el plan). XUI tiene TotalFlix o Max Player y un solo selector **Duración XUI**: cada opción es un paquete, y ese paquete marca la duración, las conexiones, el coste y la caducidad. Si el paquete no trae horas, se usa la duración de Emby cuando también está activo, y si no, 30 días. Emby viene activado. Si activas XUI:
 
 - **TotalFlix** crea solo la línea en XUI.
 - **Max Player** crea la línea y después el usuario en Max Player, con esa línea como playlist.
 
 Cada servicio tiene su fecha. En XUI se escribe `exp_date` como `YYYY-MM-DD HH:mm` en hora de Europa/Madrid (el servidor está en UTC; un unix da `STATUS_INVALID_DATE`). Este XUI ignora el parámetro `package`: el id del paquete se guarda en el panel. El paquete aporta canales, si es prueba y el tope de conexiones.
 
-Al crear la cuenta, o al añadir un servicio que faltaba, se abre el aviso de siempre con **Copiar**. El texto sigue siendo «¡Bienvenido a Totalflix!»: bloque Emby (servidor, puerto, usuario, contraseña, pantallas) y, si hay XUI, un bloque «📡 XUI» con usuario, contraseña y vencimiento con hora. Si hay los dos, cada uno lleva su fecha.
+Al crear la cuenta, o al añadir un servicio que faltaba, se abre el aviso de siempre con **Copiar**. El texto sigue siendo «¡Bienvenido a Totalflix!»: bloque Emby (servidor, puerto, usuario, contraseña, pantallas) y, si hay línea IPTV (TotalFlix o Max Player), un bloque «📡 TOTALFLIX» con usuario, contraseña y vencimiento con hora. El texto para el cliente no dice XUI. Si hay los dos, cada uno lleva su fecha.
 
 La ficha de cada cuenta muestra dispositivos de Emby y de Max Player, caducidad por servicio, ids, dominio PATO/CISNE y reseller. Desde ahí se puede crear el servicio que falte, ampliar Emby o XUI por separado (cobra como una renovación de ese servicio) y pulsar **Reparar** (llave inglesa): borra los dispositivos de Max Player y cambia el servidor entre PATO y CISNE.
 

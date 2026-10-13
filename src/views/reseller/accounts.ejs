@@ -13,38 +13,11 @@
     <%- include('../partials/account-filters', { filterAction: '/reseller/cuentas', searchPlaceholder: 'Buscar cuenta' }) %>
   </div>
 
+  <% const planHint = 'Solo entre planes de la misma duración; se cobra o devuelve la diferencia de los servicios que ya tiene. No cambia la fecha.'; %>
   <% if (list.length === 0) { %>
     <p class="empty"><%= q || estado || servicio || dominio || tipo ? 'Ninguna cuenta coincide con el filtro.' : 'Aún no has creado ninguna cuenta. Da de alta la primera arriba.' %></p>
   <% } else { %>
-  <table class="accounts-table">
-    <thead><tr><th>Cuenta</th><th>Servicios</th><th>Plan</th><th>Creada</th><th>Vence</th><th class="th-meter">Tiempo restante</th><th>Estado</th><th>Acciones</th></tr></thead>
-    <tbody>
-    <% const planHint = 'Solo entre planes de la misma duración; se cobra o devuelve la diferencia de los servicios que ya tiene. No cambia la fecha.'; %>
-    <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
-      <tr>
-        <td class="td-strong"><a href="/reseller/cuentas/<%= a.id %>"><%= a.username %></a><% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %><% if (a.provision_error) { %><span class="td-note td-warn" title="<%= a.provision_error %>"><%= a.provision_error %></span><% } %></td>
-        <td><%- include('../partials/service-badges', { a: a }) %></td>
-        <td class="td-dim"><%= a.plan || '—' %></td>
-        <td class="td-dim"><%= a.created_at.slice(0, 10) %></td>
-        <td><% if (a.expires_at) { %><%= a.expires_at.slice(0, 10) %><% } else { %><span class="td-dim">Sin caducidad</span><% } %></td>
-        <td class="td-meter">
-          <% if (a.status === 'active' && a.expires_at) { %>
-            <%- include('../partials/meter', { days: d, duration: a.duration_days }) %>
-            <span class="meter-days"><%= d < 0 ? 'hace ' + (-d) + ' d' : d === 0 ? 'hoy' : d + ' d' %></span>
-          <% } else { %><span class="td-dim">—</span><% } %>
-        </td>
-        <td><%- include('../partials/account-status', { a: a, d: d }) %></td>
-        <td class="actions"><%- include('../partials/account-actions', { a: a, actionBase: '/reseller/cuentas', canMove: false, menu: false, planHint: planHint }) %></td>
-      </tr>
-    <% }) %>
-    </tbody>
-  </table>
-  <div class="account-cards">
-    <% list.forEach(a => { const d = daysLeft(a.expires_at); %>
-      <%- include('../partials/account-card', { a: a, d: d, actionBase: '/reseller/cuentas', canMove: false, showOwner: false, planHint: planHint }) %>
-    <% }) %>
-  </div>
-  <%- include('../partials/account-pager') %>
+  <%- include('../partials/account-list', { actionBase: '/reseller/cuentas', canMove: false, showOwner: false, planHint: planHint }) %>
   <% } %>
 </section>
 

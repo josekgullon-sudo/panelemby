@@ -1,0 +1,171 @@
+<dialog class="modal account-menu" id="account-menu" aria-labelledby="account-menu-title">
+  <div class="modal-head">
+    <h3 id="account-menu-title">Acciones</h3>
+    <form method="dialog"><button class="btn btn-ghost btn-sm" type="submit">Cerrar</button></form>
+  </div>
+  <div class="account-menu-body actions">
+    <form method="post" id="menu-retry" class="inline" hidden>
+      <button class="btn btn-primary btn-sm">Reintentar</button>
+    </form>
+    <a class="btn btn-ghost btn-sm" id="menu-datos" href="#">Datos</a>
+    <details>
+      <summary>Renovar</summary>
+      <form method="post" id="menu-renew" class="form-stack">
+        <select name="plan_id" required aria-label="Plan de renovación" id="menu-renew-plan">
+          <% plans.forEach(p => { %>
+            <option value="<%= p.id %>"><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+          <% }) %>
+        </select>
+        <button class="btn btn-primary btn-sm">Renovar cuenta</button>
+      </form>
+    </details>
+    <details>
+      <summary>Plan</summary>
+      <form method="post" id="menu-plan" class="form-stack">
+        <div class="pop-title" id="menu-plan-title">Cambiar plan</div>
+        <select name="plan_id" required aria-label="Nuevo plan" id="menu-plan-select">
+          <% plans.forEach(p => { %>
+            <option value="<%= p.id %>"><%= p.name %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.</option>
+          <% }) %>
+        </select>
+        <p class="hint"><%= planHint %></p>
+        <button class="btn btn-primary btn-sm">Cambiar plan</button>
+      </form>
+    </details>
+    <details>
+      <summary>Contraseña</summary>
+      <form method="post" id="menu-password" class="form-stack">
+        <input type="password" name="password" placeholder="nueva contraseña" required aria-label="Nueva contraseña" autocomplete="new-password">
+        <button class="btn btn-sm">Cambiar contraseña</button>
+      </form>
+    </details>
+    <form method="post" id="menu-repair" class="inline" hidden>
+      <button class="btn btn-ghost btn-sm" title="Cerrar dispositivos y cambiar entre PATO y CISNE">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wrench"></use></svg>
+        Reparar
+      </button>
+    </form>
+    <a class="btn btn-ghost btn-sm" id="menu-ficha" href="#">Ficha</a>
+    <% if (canMove) { %>
+    <details>
+      <summary>Mover</summary>
+      <form method="post" id="menu-move" class="form-stack">
+        <div class="pop-title" id="menu-move-title">Mover cuenta</div>
+        <select name="owner_id" required aria-label="Nuevo reseller" id="menu-owner">
+          <% owners.forEach(o => { %>
+            <option value="<%= o.id %>"><%= o.username %><%= o.role === 'admin' ? ' (admin)' : '' %></option>
+          <% }) %>
+        </select>
+        <button class="btn btn-primary btn-sm">Mover cuenta</button>
+      </form>
+    </details>
+    <% } %>
+    <form method="post" id="menu-delete" class="inline">
+      <button class="btn btn-danger btn-sm">Borrar</button>
+    </form>
+  </div>
+</dialog>
+<script>
+(function () {
+  var dialog = document.getElementById('account-menu');
+  if (!dialog) return;
+  var base = <%- JSON.stringify(actionBase) %>;
+  var title = document.getElementById('account-menu-title');
+  var datos = document.getElementById('menu-datos');
+  var ficha = document.getElementById('menu-ficha');
+  var renew = document.getElementById('menu-renew');
+  var renewPlan = document.getElementById('menu-renew-plan');
+  var planForm = document.getElementById('menu-plan');
+  var planSelect = document.getElementById('menu-plan-select');
+  var planTitle = document.getElementById('menu-plan-title');
+  var password = document.getElementById('menu-password');
+  var retry = document.getElementById('menu-retry');
+  var repair = document.getElementById('menu-repair');
+  var move = document.getElementById('menu-move');
+  var moveTitle = document.getElementById('menu-move-title');
+  var owner = document.getElementById('menu-owner');
+  var del = document.getElementById('menu-delete');
+
+  function showOption(opt, visible) {
+    opt.hidden = !visible;
+    opt.disabled = !visible;
+  }
+
+  function fill(btn) {
+    var id = btn.getAttribute('data-id');
+    var user = btn.getAttribute('data-user') || '';
+    var plan = btn.getAttribute('data-plan') || '';
+    var ownerId = btn.getAttribute('data-owner') || '';
+    var root = base + '/' + id;
+    title.textContent = user;
+    datos.href = root + '/datos';
+    ficha.href = root;
+    renew.action = root + '/renovar';
+    planForm.action = root + '/plan';
+    password.action = root + '/password';
+    password.reset();
+    retry.action = root + '/reintentar';
+    retry.hidden = btn.getAttribute('data-retry') !== '1';
+    repair.action = root + '/reparar';
+    repair.hidden = btn.getAttribute('data-repair') !== '1';
+    repair.setAttribute('data-domain', btn.getAttribute('data-domain') || 'el servidor actual');
+    repair.setAttribute('data-next', btn.getAttribute('data-next') || 'PATO');
+    del.action = root + '/borrar';
+    del.setAttribute('data-user', user);
+    if (renewPlan && plan) renewPlan.value = plan;
+    if (planSelect) {
+      var first = '';
+      Array.prototype.forEach.call(planSelect.options, function (opt) {
+        var visible = opt.value !== plan;
+        showOption(opt, visible);
+        if (visible && !first) first = opt.value;
+      });
+      if (first) planSelect.value = first;
+    }
+    planTitle.textContent = 'Cambiar plan de «' + user + '»';
+    if (move && owner) {
+      move.action = root + '/mover';
+      var firstOwner = '';
+      Array.prototype.forEach.call(owner.options, function (opt) {
+        var visible = opt.value !== ownerId;
+        showOption(opt, visible);
+        if (visible && !firstOwner) firstOwner = opt.value;
+      });
+      if (firstOwner) owner.value = firstOwner;
+      moveTitle.textContent = 'Mover «' + user + '» a:';
+    }
+    dialog.querySelectorAll('details').forEach(function (item) { item.open = false; });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var delBtn = ev.target.closest('.row-delete');
+    if (delBtn) {
+      fill(delBtn.closest('tr').querySelector('.row-open'));
+      del.requestSubmit();
+      return;
+    }
+    var open = ev.target.closest('.row-open');
+    if (!open) return;
+    fill(open);
+    if (dialog.showModal) dialog.showModal();
+  });
+
+  dialog.addEventListener('click', function (ev) {
+    if (ev.target === dialog) dialog.close();
+  });
+
+  del.addEventListener('submit', function (ev) {
+    var user = del.getAttribute('data-user') || '';
+    if (!confirm('¿Borrar ' + user + ' en todos los servicios donde exista (Emby, XUI, Max Player)?')) {
+      ev.preventDefault();
+    }
+  });
+
+  repair.addEventListener('submit', function (ev) {
+    var msg = '¿Reparar esta cuenta de Max Player? Se cerrarán todos los dispositivos y el servidor pasará de '
+      + (repair.getAttribute('data-domain') || 'el servidor actual')
+      + ' a ' + (repair.getAttribute('data-next') || 'PATO') + '.';
+    if (!confirm(msg)) ev.preventDefault();
+  });
+})();
+</script>

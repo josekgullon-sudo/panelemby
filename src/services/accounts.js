@@ -207,13 +207,76 @@ function parseServices(body) {
     xui,
     playerKind: xui ? playerKind : null,
     packageId: String(body.xui_package_id || '').trim(),
-    xuiPlanId: parseInt(body.xui_plan_id, 10) || null,
   };
 }
 
 function xuiCredit(plan, packageRow) {
   if (packageRow && packageRow.credit_cost != null) return packageRow.credit_cost;
   return plan.xui_credit_cost || 0;
+}
+
+// En XUI la duración del paquete viene en horas (720 = 30 días, 6 = la demo).
+function packageHours(pack) {
+  if (!pack) return 0;
+  const official = Number(pack.official_duration);
+  const trial = Number(pack.trial_duration);
+  const officialHours = Number.isFinite(official) && official > 0 ? official : 0;
+  const trialHours = Number.isFinite(trial) && trial > 0 ? trial : 0;
+  if (pack.is_trial) return trialHours || officialHours;
+  return officialHours || trialHours;
+}
+
+function packageDurationDays(pack) {
+  const hours = packageHours(pack);
+  return hours > 0 ? hours / 24 : null;
+}
+
+function planMatchingDays(days, connections) {
+  if (days == null || !Number.isFinite(Number(days))) return null;
+  const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1').all();
+  let best = null;
+  let bestScore = Infinity;
+  for (const item of plans) {
+    const diff = Math.abs(Number(item.duration_days) - Number(days));
+    const screenPenalty = connections && Number(item.screens) !== Number(connections) ? 0.001 : 0;
+    const score = diff + screenPenalty;
+    if (score < bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+// Sin horas en el paquete: la duración de Emby si se está creando a la vez,
+// y si no el plan de 30 días (o 30 días si no hay planes).
+function resolveXuiDays(packageRow, embyPlan) {
+  const fromPackage = packageDurationDays(packageRow);
+  if (fromPackage != null) return fromPackage;
+  if (embyPlan && Number(embyPlan.duration_days) > 0) return Number(embyPlan.duration_days);
+  const monthly = planMatchingDays(30);
+  if (monthly) return Number(monthly.duration_days);
+  return 30;
+}
+
+function expiryFromDays(days) {
+  return toSqlDate(new Date(Date.now() + Number(days) * 24 * 3600 * 1000));
+}
+
+function extendByDays(sql, days) {
+  const base = Math.max(Date.now(), sql ? parseSqlDate(sql).getTime() : Date.now());
+  return toSqlDate(new Date(base + Number(days) * 24 * 3600 * 1000));
+}
+
+function xuiOptionMeta(pack) {
+  const days = packageDurationDays(pack);
+  const match = planMatchingDays(days != null ? days : 30, pack && pack.max_connections);
+  return {
+    days,
+    fallbackDays: days == null ? (match ? Number(match.duration_days) : 30) : null,
+    fallbackCost: match ? match.xui_credit_cost || 0 : 0,
+    maxCost: match ? match.maxplayer_credit_cost || 0 : 0,
+  };
 }
 
 // Emby usa credit_cost (como hasta ahora). XUI suma el precio del paquete si
@@ -414,7 +477,7 @@ function buildWelcomeMessage(card) {
     lines.push('');
   }
   if (card.hasXui) {
-    lines.push('📡 XUI');
+    lines.push('📡 TOTALFLIX');
     lines.push(`Usuario: ${card.username}`);
     lines.push(`Contraseña: ${password}`);
     lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
@@ -501,7 +564,6 @@ async function createAccount({ username, password, planId, owner, notes, service
         xui: !!services.xui,
         playerKind: services.xui ? (services.playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix') : null,
         packageId: services.packageId || '',
-        xuiPlanId: services.xuiPlanId || null,
       }
     : { emby: true, xui: false, playerKind: null, packageId: '' };
   if (!want.emby && !want.xui) throw new BusinessError('Activa Emby, XUI o los dos');
@@ -512,22 +574,29 @@ async function createAccount({ username, password, planId, owner, notes, service
     throw new BusinessError('XUI no está configurado. Revisa XUI_API_URL y XUI_API_KEY.');
   }
 
-  const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
-  if (!plan) throw new BusinessError('Plan no válido');
-  const xuiPlanId = want.xui ? services.xuiPlanId || planId : null;
-  const xuiPlan = want.xui
-    ? xuiPlanId === plan.id
-      ? plan
-      : db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(xuiPlanId)
-    : null;
-  if (want.xui && !xuiPlan) throw new BusinessError('Elige la duración de XUI');
+  let embyPlan = null;
+  if (want.emby) {
+    embyPlan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
+    if (!embyPlan) throw new BusinessError('Plan no válido');
+  }
   const taken = db.prepare('SELECT 1 FROM emby_accounts WHERE username = ?').get(username);
   if (taken) throw new BusinessError('Ese nombre de usuario ya existe en el panel');
 
   const packageRow = want.xui ? await loadPackage(want.packageId) : null;
+  const xuiDays = want.xui ? resolveXuiDays(packageRow, embyPlan) : null;
+  const xuiPlan = want.xui ? (planMatchingDays(xuiDays, packageRow && packageRow.max_connections) || embyPlan) : null;
+  // El plan explícito solo pone el precio de reserva y el extra de Max Player.
+  // La caducidad de la línea la marca el paquete.
+  const explicitPlan = embyPlan
+    || (planId ? db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId) : null);
+  const plan = explicitPlan
+    || xuiPlan
+    || db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, id LIMIT 1').get();
+  if (!plan) throw new BusinessError('Plan no válido');
+  const pricingPlan = explicitPlan || xuiPlan || plan;
   const quoted = quoteCost({
-    plan,
-    xuiPlan,
+    plan: embyPlan || pricingPlan,
+    xuiPlan: pricingPlan,
     packageRow,
     emby: want.emby,
     xui: want.xui,
@@ -537,15 +606,10 @@ async function createAccount({ username, password, planId, owner, notes, service
     throw new BusinessError(`Créditos insuficientes: esta alta cuesta ${quoted.cost} y tienes ${owner.credits}`);
   }
 
-  const expiresAtDate = new Date(Date.now() + plan.duration_days * 24 * 3600 * 1000);
-  const expiresAt = toSqlDate(expiresAtDate);
-  const xuiExpiresAt = want.xui
-    ? xuiPlan.id === plan.id
-      ? expiresAt
-      : toSqlDate(new Date(Date.now() + xuiPlan.duration_days * 24 * 3600 * 1000))
-    : null;
-  const embyExpiresAt = want.emby ? expiresAt : null;
+  const embyExpiresAt = want.emby ? expiryFromDays(embyPlan.duration_days) : null;
+  const xuiExpiresAt = want.xui ? expiryFromDays(xuiDays) : null;
   const clock = [embyExpiresAt, xuiExpiresAt].filter(Boolean).sort()[0];
+  const expiresAt = clock;
   const made = { embyId: null, xuiId: null, mpId: null, listOk: 0, domainId: null };
 
   try {
@@ -1303,18 +1367,32 @@ function chargeReseller(actor, cost, reason, accountId) {
   deductCredits(actor.id, cost, reason, accountId, actor.id);
 }
 
-async function extendService({ accountId, actor, service, planId }) {
+async function extendService({ accountId, actor, service, planId, packageId }) {
   const account = loadOwned(accountId, actor);
-  const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
-  if (!plan) throw new BusinessError('Plan no válido');
   if (service !== 'emby' && service !== 'xui') throw new BusinessError('Servicio no válido');
-
-  const packageRow = account.xui_package_id
-    ? db.prepare('SELECT * FROM xui_packages WHERE id = ?').get(String(account.xui_package_id))
+  const passedPlan = planId
+    ? db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId)
     : null;
+  if (service === 'emby' && !passedPlan) throw new BusinessError('Plan no válido');
+
+  const chosenPackage = service === 'xui' && packageId ? await loadPackage(packageId) : null;
+  const packageRow = chosenPackage
+    || (account.xui_package_id
+      ? db.prepare('SELECT * FROM xui_packages WHERE id = ?').get(String(account.xui_package_id))
+      : null);
+  const accountPlan = account.plan_id
+    ? db.prepare('SELECT * FROM plans WHERE id = ?').get(account.plan_id)
+    : null;
+  const xuiDays = service === 'xui'
+    ? (packageRow ? resolveXuiDays(packageRow, passedPlan || accountPlan) : (passedPlan ? passedPlan.duration_days : null))
+    : null;
+  if (service === 'xui' && !xuiDays) throw new BusinessError('Elige la duración de XUI');
+  const xuiPlan = service === 'xui' ? (planMatchingDays(xuiDays) || passedPlan || accountPlan) : null;
+  const plan = service === 'emby' ? passedPlan : (xuiPlan || passedPlan || accountPlan);
+  if (!plan) throw new BusinessError('Plan no válido');
   const quoted = quoteCost({
     plan,
-    xuiPlan: plan,
+    xuiPlan: xuiPlan || plan,
     packageRow,
     emby: service === 'emby',
     xui: service === 'xui',
@@ -1345,19 +1423,39 @@ async function extendService({ accountId, actor, service, planId }) {
   }
 
   if (!account.xui_line_id) throw new BusinessError('Esta cuenta no tiene línea XUI. Créala antes de ampliarla.');
-  const xuiExpiry = extendDate(account.xui_expires_at || account.expires_at, plan);
+  const xuiExpiry = extendByDays(account.xui_expires_at || account.expires_at, xuiDays);
   const fields = { exp_date: formatExpDate(xuiExpiry) };
-  if (!packageRow || !packageRow.max_connections) fields.max_connections = plan.screens || 1;
-  await X().editLine(account.xui_line_id, xuiEditFields(account, fields));
+  if (packageRow && packageRow.max_connections) fields.max_connections = packageRow.max_connections;
+  else fields.max_connections = plan.screens || 1;
+  const lineAccount = chosenPackage
+    ? Object.assign({}, account, { xui_bouquets: JSON.stringify(parseBouquets(chosenPackage.bouquets)) })
+    : account;
+  await X().editLine(account.xui_line_id, xuiEditFields(lineAccount, fields));
   await X().enableLine(account.xui_line_id);
   const next = Object.assign({}, account, { xui_expires_at: xuiExpiry, xui_cut: 0 });
   const expiresAt = clockFrom(next);
   const tx = db.transaction(() => {
-    db.prepare(
-      `UPDATE emby_accounts
-       SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active'
-       WHERE id = ?`
-    ).run(xuiExpiry, expiresAt, account.id);
+    if (chosenPackage) {
+      db.prepare(
+        `UPDATE emby_accounts
+         SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active',
+             xui_package_id = ?, xui_package_name = ?, xui_bouquets = ?
+         WHERE id = ?`
+      ).run(
+        xuiExpiry,
+        expiresAt,
+        chosenPackage.id,
+        chosenPackage.package_name,
+        JSON.stringify(parseBouquets(chosenPackage.bouquets)),
+        account.id
+      );
+    } else {
+      db.prepare(
+        `UPDATE emby_accounts
+         SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active'
+         WHERE id = ?`
+      ).run(xuiExpiry, expiresAt, account.id);
+    }
     chargeReseller(actor, quoted.cost, 'renew', account.id);
   });
   tx();
@@ -1370,8 +1468,10 @@ async function addService({ accountId, actor, service, planId, packageId, player
   if (!password) {
     throw new BusinessError('No hay contraseña guardada. Pon una nueva y después añade el servicio.');
   }
-  const plan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
-  if (!plan) throw new BusinessError('Plan no válido');
+  const plan = planId
+    ? db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId)
+    : (account.plan_id ? db.prepare('SELECT * FROM plans WHERE id = ?').get(account.plan_id) : null);
+  if (service === 'emby' && !plan) throw new BusinessError('Plan no válido');
 
   if (service === 'emby') {
     if (account.emby_user_id) throw new BusinessError('Esta cuenta ya tiene Emby');
@@ -1404,9 +1504,12 @@ async function addService({ accountId, actor, service, planId, packageId, player
   if (account.xui_line_id) throw new BusinessError('Esta cuenta ya tiene línea XUI');
   const kind = playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix';
   const packageRow = await loadPackage(packageId);
+  const xuiDays = resolveXuiDays(packageRow, plan);
+  const xuiPlan = planMatchingDays(xuiDays) || plan;
+  if (!xuiPlan) throw new BusinessError('Elige la duración de XUI');
   const quoted = quoteCost({
-    plan,
-    xuiPlan: plan,
+    plan: xuiPlan,
+    xuiPlan,
     packageRow,
     emby: false,
     xui: true,
@@ -1415,12 +1518,12 @@ async function addService({ accountId, actor, service, planId, packageId, player
   if (actor.role === 'reseller' && actor.credits < quoted.cost) {
     throw new BusinessError(`Créditos insuficientes: XUI cuesta ${quoted.cost} y tienes ${actor.credits}`);
   }
-  const xuiExpiry = toSqlDate(new Date(Date.now() + plan.duration_days * 24 * 3600 * 1000));
+  const xuiExpiry = expiryFromDays(xuiDays);
   const line = await X().createLine({
     username: account.username,
     password,
     expDate: xuiExpiry,
-    maxConnections: lineConnections(plan, packageRow),
+    maxConnections: lineConnections(xuiPlan || plan || { screens: 1 }, packageRow),
     packageId: packageRow.id,
     isTrial: !!packageRow.is_trial,
     bouquets: parseBouquets(packageRow.bouquets),
@@ -1557,6 +1660,8 @@ module.exports = {
   daysLeft,
   dueServices,
   formatDuration,
+  packageDurationDays,
+  xuiOptionMeta,
   addCredits,
   parseServices,
   quoteCost,
