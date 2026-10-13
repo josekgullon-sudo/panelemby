@@ -42,6 +42,7 @@ npm run dev                 # http://localhost:3000, recarga al guardar
 | `npm run import-xui` | Trae todas las líneas de XUI. No cobra créditos. `-- --simular` no escribe. Una línea sin `exp_date` queda sin caducidad |
 | `npm run auditar-ilimitadas` | Lista las importadas cuya caducidad es la hora de importación + 30 días y XUI no tiene `exp_date`. `-- --aplicar` les quita esa fecha; no corta líneas |
 | `npm run rellenar-xui` | Relee `get_line` de cada cuenta importada (4 a la vez, con reintentos) y cuenta pruebas y líneas sin fecha. `-- --aplicar` guarda `is_trial` y deja ilimitadas las que no traen `exp_date` |
+| `npm run listar-pruebas-xui` | Lista líneas creadas en el panel que aquí son de pago y en XUI tienen `is_trial=1`. Solo lee |
 
 ## Emby, XUI y Max Player
 

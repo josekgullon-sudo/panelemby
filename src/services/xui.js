@@ -461,17 +461,18 @@ function outputIdsFromLine(row) {
 async function createLine({ username, password, expDate, maxConnections, packageId, isTrial, bouquets, memberId }) {
   // `package` se envía igual, pero este XUI lo ignora: la línea vuelve sin
   // paquete. El id que vale es el que guardamos en emby_accounts.xui_package_id.
+  // Cualquier is_trial (también 0) enciende la prueba. Solo se manda el 1.
   const params = {
     username,
     password,
     exp_date: formatExpDate(expDate),
     max_connections: maxConnections,
     package: packageId,
-    is_trial: isTrial ? 1 : 0,
     enabled: 1,
     member_id: memberId || config.xuiMemberId || undefined,
     'access_output[]': configuredOutputIds(),
   };
+  if (trialFlag(isTrial)) params.is_trial = 1;
   if (bouquets && bouquets.length) params.bouquets_selected = JSON.stringify(bouquets.map(String));
   const data = await request('create_line', params);
   const row = data && !Array.isArray(data) ? data : Array.isArray(data) ? data[0] : null;
@@ -533,13 +534,14 @@ function lineToEditParams(row) {
     password: row.password == null ? '' : row.password,
     exp_date: row.exp_date ?? row.expdate,
     max_connections: row.max_connections,
-    is_trial: row.is_trial,
     enabled: row.enabled,
     admin_enabled: row.admin_enabled,
     member_id: row.member_id,
     'access_output[]': outputIdsFromLine(row),
   };
   if (bouquets.length) params.bouquets_selected = JSON.stringify(bouquets);
+  // Un is_trial presente, aunque sea 0, deja la línea en prueba. En una de pago no se manda.
+  if (trialFlag(row.is_trial)) params.is_trial = 1;
   const ips = editScalar(row.allowed_ips);
   const ua = editScalar(row.allowed_ua);
   if (ips != null && ips !== '') params.allowed_ips = ips;
@@ -572,6 +574,11 @@ async function editLine(id, fields) {
   for (const [key, value] of Object.entries(fields || {})) {
     if (key === 'id' || key === 'allowed_outputs' || key === 'output_formats' || value === undefined) continue;
     if (key === 'bouquets_selected' && emptyBouquetList(value)) continue;
+    if (key === 'is_trial') {
+      if (trialFlag(value)) params.is_trial = 1;
+      else delete params.is_trial;
+      continue;
+    }
     params[key] = value;
   }
   params.id = String(id);
