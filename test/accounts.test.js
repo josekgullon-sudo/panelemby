@@ -181,7 +181,8 @@ test('TotalFlix crea la línea y no llama a Max Player', async () => {
   assert.equal(row.player_kind, 'totalflix');
   assert.equal(row.has_emby, 0);
   const card = accounts.connectionCard(created.id, actor());
-  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📡 TOTALFLIX/);
+  assert.equal(card.message.replaceAll(card.username, '').toLowerCase().includes('xui'), false);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   assert.equal(card.message.includes('m3u'), false);
   assert.match(card.m3u, /iptv\.test:8080/);
@@ -406,7 +407,8 @@ test('el texto para copiar junta Emby y XUI sin la M3U', async () => {
   assert.match(card.message, /Servidor: http:\/\/emby\.example/);
   assert.match(card.message, /Puerto: dejar vacío/);
   assert.match(card.message, /Pantallas:/);
-  assert.match(card.message, /📡 XUI/);
+  assert.match(card.message, /📡 TOTALFLIX/);
+  assert.equal(card.message.replaceAll(card.username, '').toLowerCase().includes('xui'), false);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2}\n/);
   assert.match(card.message, /📅 Vence: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   assert.equal(/Lista M3U/.test(card.message), false);

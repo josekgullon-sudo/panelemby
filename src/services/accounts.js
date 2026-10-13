@@ -414,7 +414,7 @@ function buildWelcomeMessage(card) {
     lines.push('');
   }
   if (card.hasXui) {
-    lines.push('📡 XUI');
+    lines.push('📡 TOTALFLIX');
     lines.push(`Usuario: ${card.username}`);
     lines.push(`Contraseña: ${password}`);
     lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
