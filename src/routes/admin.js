@@ -63,7 +63,9 @@ router.get('/', (req, res) => {
     .all();
   const upcoming = db
     .prepare(
-      `SELECT a.username, a.expires_at, p.username AS owner, pl.duration_days
+      `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
+              a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial,
+              p.username AS owner, pl.duration_days
        FROM emby_accounts a
        JOIN panel_users p ON p.id = a.owner_id
        LEFT JOIN plans pl ON pl.id = a.plan_id
@@ -71,7 +73,14 @@ router.get('/', (req, res) => {
        ORDER BY a.expires_at LIMIT 20`
     )
     .all();
-  res.render('admin/dashboard', { stats, byReseller, upcoming, recent, daysLeft: accounts.daysLeft });
+  res.render('admin/dashboard', {
+    stats,
+    byReseller,
+    upcoming,
+    recent,
+    daysLeft: accounts.daysLeft,
+    dueServices: accounts.dueServices,
+  });
 });
 
 // --- Resellers ---
@@ -264,29 +273,7 @@ router.post('/paquetes/coste', (req, res) => {
 router.get(
   '/cuentas',
   wrap(async (req, res) => {
-  const q = (req.query.q || '').trim();
-  const estado = ['active', 'expired'].includes(req.query.estado) ? req.query.estado : '';
-  let sql = `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
-             FROM emby_accounts a
-             JOIN panel_users p ON p.id = a.owner_id
-             LEFT JOIN plans pl ON pl.id = a.plan_id
-             WHERE a.status != 'deleted'`;
-  const params = [];
-  if (q) {
-    sql += ' AND (a.username LIKE ? OR p.username LIKE ?)';
-    params.push(`%${q}%`, `%${q}%`);
-  }
-  if (estado) {
-    sql += ' AND a.status = ?';
-    params.push(estado);
-  }
-  const filters = accounts.accountListFilters(req.query);
-  if (filters.clauses.length) {
-    sql += ` AND ${filters.clauses.join(' AND ')}`;
-    params.push(...filters.params);
-  }
-  sql += ' ORDER BY a.expires_at';
-  const list = db.prepare(sql).all(...params);
+  const pageData = accounts.listAccounts(req.query, { base: '/admin/cuentas' });
   const plans = db.prepare('SELECT * FROM plans WHERE is_active = 1 ORDER BY duration_days, screens').all();
   const owners = db
     .prepare("SELECT id, username, role FROM panel_users WHERE is_active = 1 ORDER BY role, username")
@@ -295,13 +282,26 @@ router.get(
   delete req.session.newAccount;
   const form = await accounts.packagesForForm();
   res.render('admin/accounts', {
-    list,
+    list: pageData.list,
+    total: pageData.total,
+    pageNum: pageData.page,
+    pages: pageData.pages,
+    pageSize: pageData.pageSize,
+    rangeFrom: pageData.from,
+    rangeTo: pageData.to,
+    pageWindow: pageData.pageWindow,
+    pageHref: (n) => pageData.href(n),
+    sort: pageData.sort,
+    dir: pageData.dir,
+    reseller: pageData.reseller,
+    showReseller: true,
     plans,
     owners,
-    q,
-    estado,
-    servicio: filters.servicio,
-    dominio: filters.dominio,
+    q: pageData.q,
+    estado: pageData.estado,
+    servicio: pageData.servicio,
+    dominio: pageData.dominio,
+    tipo: pageData.tipo,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
     daysLeft: accounts.daysLeft,

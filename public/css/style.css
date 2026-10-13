@@ -1,5 +1,5 @@
 /* ============================================================
-   Totalflix EMBY — tema oscuro
+   Totalflix — tema oscuro
    Paleta: carbón azulado + verde Totalflix; ámbar y rojo para tiempo.
    Display: Archivo · Cuerpo/datos: Inter
    ============================================================ */
@@ -74,20 +74,13 @@ code {
   color: var(--text);
 }
 .wordmark-total em { font-style: normal; color: var(--green); }
-.wordmark-emby {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--bg);
-  background: var(--green);
-  padding: 2px 7px;
-  border-radius: 4px;
-  transform: translateY(-1px);
+.badge-muted {
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--line-soft);
 }
 .wordmark-lg { justify-content: center; margin-bottom: 6px; }
 .wordmark-lg .wordmark-total { font-size: 26px; }
-.wordmark-lg .wordmark-emby { font-size: 12px; padding: 3px 9px; }
 
 /* ---------- Estructura ---------- */
 
@@ -392,6 +385,33 @@ select { cursor: pointer; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .filter-row input[type="search"] { width: 210px; }
 .filter-row select { width: auto; }
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+.pager-range { margin: 0; color: var(--text-dim); font-size: 13px; }
+.pager-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pager-num,
+.pager-current {
+  min-width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.pager-current { background: var(--surface-hover); }
+.pager-gap { color: var(--text-dim); padding: 0 2px; }
+.pager-step { min-height: 36px; }
 .inline { display: inline; }
 
 .hint { color: var(--text-faint); font-size: 12px; margin: 10px 0 0; }
@@ -781,7 +801,13 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
     min-height: 44px;
     font-size: 16px;
   }
-  .filter-row input[type="search"] { grid-column: 1 / -1; width: 100%; }
+  .filter-row input[type="search"],
+  .filter-row .btn { grid-column: 1 / -1; width: 100%; }
+  .pager { flex-direction: column; align-items: stretch; }
+  .pager-links { justify-content: center; }
+  .pager-step,
+  .pager-num,
+  .pager-current { min-height: 44px; min-width: 44px; }
   .panel-head > form.inline,
   .panel-head > form.inline .btn { width: 100%; }
   .panel-head > form.inline .btn { min-height: 44px; }

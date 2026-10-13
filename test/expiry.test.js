@@ -28,6 +28,12 @@ function insert(username, embyAt, xuiAt) {
 insert('mixta', sqlDays(-3), sqlDays(20));
 insert('reciente', sqlDays(-40), sqlDays(-1));
 insert('vieja', sqlDays(-40), sqlDays(-30));
+db.prepare(
+  `INSERT INTO emby_accounts (
+     username, password_hash, owner_id, plan_id, expires_at, status,
+     has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+   ) VALUES ('solo.xui', ?, ?, ?, ?, 'active', 0, 'line-viva', 'totalflix', ?, 0, 0)`
+).run(hash, owner.id, plan.id, sqlDays(40), sqlDays(40));
 
 const calls = [];
 accounts.setIntegrations({
@@ -65,4 +71,9 @@ test('cada servicio caduca solo y el borrado espera a la fecha más tardía', as
   const vieja = db.prepare("SELECT * FROM emby_accounts WHERE username LIKE 'vieja#del%'").get();
   assert.equal(vieja.status, 'deleted');
   assert.equal(vieja.xui_line_id, null);
+
+  const viva = db.prepare("SELECT * FROM emby_accounts WHERE username = 'solo.xui'").get();
+  assert.equal(viva.status, 'active');
+  assert.equal(viva.xui_cut, 0);
+  assert.equal(calls.some((c) => c[1] === 'line-viva'), false);
 });

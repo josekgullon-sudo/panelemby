@@ -56,6 +56,20 @@ function daysLeft(expiresAt) {
   return Math.ceil(ms / (24 * 3600 * 1000));
 }
 
+// Servicios cuya fecha cae en los próximos 7 días. Una fecha Emby vacía
+// (cuenta solo XUI, has_emby=0) no cuenta como caducada.
+function dueServices(account) {
+  const horizon = toSqlDate(new Date(Date.now() + 7 * 24 * 3600 * 1000));
+  const services = [];
+  if (account.emby_user_id && account.emby_expires_at && account.emby_expires_at <= horizon) {
+    services.push('Emby');
+  }
+  if (account.xui_line_id && account.xui_expires_at && account.xui_expires_at <= horizon) {
+    services.push('XUI');
+  }
+  return services;
+}
+
 function unixSeconds(sqlDate) {
   return Math.floor(parseSqlDate(sqlDate).getTime() / 1000);
 }
@@ -644,8 +658,8 @@ function persistNewAccount({
            emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
            has_emby, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
            maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, provision_error,
-           emby_expires_at, xui_expires_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           emby_expires_at, xui_expires_at, is_trial
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         made.embyId,
@@ -667,7 +681,8 @@ function persistNewAccount({
         made.domainId || null,
         provisionError,
         embyExpiresAt,
-        xuiExpiresAt
+        xuiExpiresAt,
+        packageRow && packageRow.is_trial ? 1 : 0
       );
     if (owner.role === 'reseller') {
       deductCredits(owner.id, cost, 'create_account', info.lastInsertRowid, owner.id);
@@ -1143,7 +1158,140 @@ function accountListFilters(query) {
     clauses.push('a.maxplayer_domain_id = ?');
     params.push(String(config.maxplayerDomainCisneId));
   }
-  return { servicio, dominio, clauses, params };
+  const tipo = ['prueba', 'normal'].includes(query.tipo) ? query.tipo : '';
+  if (tipo === 'prueba') clauses.push('a.is_trial = 1');
+  if (tipo === 'normal') clauses.push('a.is_trial = 0');
+  return { servicio, dominio, tipo, clauses, params };
+}
+
+const PAGE_SIZES = [25, 50, 100];
+const SORTS = {
+  vence: 'a.expires_at',
+  cuenta: 'a.username',
+  creada: 'a.created_at',
+  estado: 'a.status',
+  reseller: 'p.username COLLATE NOCASE',
+  plan: 'pl.name COLLATE NOCASE',
+};
+
+function pageWindow(page, pages) {
+  if (pages <= 1) return [];
+  const start = Math.max(1, page - 2);
+  const end = Math.min(pages, page + 2);
+  const items = [];
+  if (start > 1) items.push(1);
+  if (start > 2) items.push(0);
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < pages - 1) items.push(0);
+  if (end < pages) items.push(pages);
+  return items;
+}
+
+function accountPageHref(base, state, page) {
+  const params = new URLSearchParams();
+  if (state.q) params.set('q', state.q);
+  if (state.estado) params.set('estado', state.estado);
+  if (state.servicio) params.set('servicio', state.servicio);
+  if (state.dominio) params.set('dominio', state.dominio);
+  if (state.tipo) params.set('tipo', state.tipo);
+  if (state.reseller) params.set('reseller', String(state.reseller));
+  if (state.sort && state.sort !== 'activas') params.set('orden', state.sort);
+  if (state.pageSize !== 50) params.set('tam', String(state.pageSize));
+  if (state.dir !== 'asc') params.set('dir', state.dir);
+  if (page > 1) params.set('pagina', String(page));
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+// Lista paginada. Filtros, búsqueda y orden se aplican en SQL sobre todas
+// las cuentas, no sobre la página ya cortada. ownerId limita al reseller.
+function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
+  const src = query || {};
+  const q = String(src.q || '').trim();
+  const estado = ['active', 'expired'].includes(src.estado) ? src.estado : '';
+  const filters = accountListFilters(src);
+  const pageSize = PAGE_SIZES.includes(parseInt(src.tam, 10)) ? parseInt(src.tam, 10) : 50;
+  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'activas';
+  if (ownerId && sort === 'reseller') sort = 'vence';
+  let dir = src.dir === 'desc' ? 'desc' : 'asc';
+  if (sort === 'activas') dir = 'asc';
+  let reseller = '';
+  if (!ownerId) {
+    const raw = parseInt(src.reseller, 10);
+    if (Number.isInteger(raw) && raw > 0) reseller = String(raw);
+  }
+
+  const clauses = ["a.status != 'deleted'"];
+  const params = [];
+  if (ownerId) {
+    clauses.push('a.owner_id = ?');
+    params.push(ownerId);
+  } else if (reseller) {
+    clauses.push('a.owner_id = ?');
+    params.push(parseInt(reseller, 10));
+  }
+  if (q) {
+    if (ownerId) {
+      clauses.push('a.username LIKE ?');
+      params.push(`%${q}%`);
+    } else {
+      clauses.push('(a.username LIKE ? OR p.username LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`);
+    }
+  }
+  if (estado) {
+    clauses.push('a.status = ?');
+    params.push(estado);
+  }
+  if (filters.clauses.length) {
+    clauses.push(...filters.clauses);
+    params.push(...filters.params);
+  }
+
+  const from = `FROM emby_accounts a
+    JOIN panel_users p ON p.id = a.owner_id
+    LEFT JOIN plans pl ON pl.id = a.plan_id
+    WHERE ${clauses.join(' AND ')}`;
+  const total = db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...params).n;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  let page = parseInt(src.pagina, 10);
+  if (!Number.isInteger(page) || page < 1) page = 1;
+  if (page > pages) page = pages;
+  const offset = (page - 1) * pageSize;
+  const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
+  // Sin orden explícito, las caducadas (fecha más vieja) no ocupan la primera página.
+  const orderBy = sort === 'activas'
+    ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, a.expires_at ASC, a.id ASC`
+    : `${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}`;
+  const list = db.prepare(
+    `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
+     ${from}
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`
+  ).all(...params, pageSize, offset);
+
+  const state = {
+    q,
+    estado,
+    servicio: filters.servicio,
+    dominio: filters.dominio,
+    tipo: filters.tipo,
+    reseller,
+    pageSize,
+    sort,
+    dir,
+    total,
+    page,
+    pages,
+    pageWindow: pageWindow(page, pages),
+    from: total === 0 ? 0 : offset + 1,
+    to: offset + list.length,
+    list,
+    href(n) {
+      return accountPageHref(base, state, n);
+    },
+  };
+  return state;
 }
 
 function chargeReseller(actor, cost, reason, accountId) {
@@ -1403,6 +1551,7 @@ module.exports = {
   toSqlDate,
   parseSqlDate,
   daysLeft,
+  dueServices,
   formatDuration,
   addCredits,
   parseServices,
@@ -1440,6 +1589,7 @@ module.exports = {
   domainLabel,
   nextDomainLabel,
   accountListFilters,
+  listAccounts,
   formatClientDate,
   clockFrom,
   setIntegrations,

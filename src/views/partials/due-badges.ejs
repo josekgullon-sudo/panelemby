@@ -1,0 +1,7 @@
+<span class="svc-badges">
+  <% dueServices(account).forEach(function (name) { %>
+    <span class="badge <%= name === 'XUI' ? 'svc-xui' : 'svc-emby' %>"><%= name %></span>
+  <% }) %>
+  <% if (account.is_trial) { %><span class="badge badge-warn">prueba</span>
+  <% } else { %><span class="badge badge-muted">normal</span><% } %>
+</span>

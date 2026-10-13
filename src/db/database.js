@@ -50,6 +50,7 @@ ensureColumn('emby_accounts', 'emby_expires_at', 'ALTER TABLE emby_accounts ADD 
 ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN xui_expires_at TEXT');
 ensureColumn('emby_accounts', 'emby_cut', 'ALTER TABLE emby_accounts ADD COLUMN emby_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN xui_cut INTEGER NOT NULL DEFAULT 0');
+ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
 ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
 
 db.exec(`
@@ -61,6 +62,8 @@ db.exec(`
    WHERE status = 'expired' AND emby_user_id IS NOT NULL AND emby_cut = 0;
   UPDATE emby_accounts SET xui_cut = 1
    WHERE status = 'expired' AND xui_line_id IS NOT NULL AND xui_cut = 0;
+  UPDATE emby_accounts SET is_trial = 1
+   WHERE is_trial = 0 AND xui_package_id IN (SELECT id FROM xui_packages WHERE is_trial = 1);
 `);
 ensureColumn('plans', 'xui_credit_cost', 'ALTER TABLE plans ADD COLUMN xui_credit_cost INTEGER NOT NULL DEFAULT 0');
 ensureColumn(
@@ -78,6 +81,10 @@ db.exec(`
     ON emby_accounts(maxplayer_user_id) WHERE maxplayer_user_id IS NOT NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_users_xui_member
     ON panel_users(xui_member_id) WHERE xui_member_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_kind
+    ON emby_accounts(player_kind, expires_at) WHERE status != 'deleted' AND player_kind IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_domain
+    ON emby_accounts(maxplayer_domain_id, expires_at) WHERE status != 'deleted' AND maxplayer_domain_id IS NOT NULL;
 `);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue

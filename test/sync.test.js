@@ -29,7 +29,7 @@ db.prepare(
 ).run(hash, reseller.id);
 
 const lines = [
-  { id: '10', username: 'nuevo', password: 'abc', exp_date: '2026-08-01 12:00', member_id: '15', enabled: true, package_id: '' },
+  { id: '10', username: 'nuevo', password: 'abc', exp_date: '2026-08-01 12:00', member_id: '15', enabled: true, package_id: '', is_trial: true },
   { id: '11', username: 'en.app', password: 'abc', exp_date: '2026-08-01 12:00', member_id: '', enabled: true, package_id: '' },
   { id: '12', username: 'ya.emby', password: 'abc', exp_date: '2026-09-01 12:00', member_id: '15', enabled: true, package_id: '1' },
   { id: '13', username: 'ocupado', password: 'abc', exp_date: '2026-09-01 12:00', member_id: '', enabled: true, package_id: '' },
@@ -91,6 +91,7 @@ test('la sincronización no duplica, no cobra y distingue Max Player', async () 
   assert.equal(nuevo.has_emby, 0);
   assert.equal(nuevo.player_kind, 'totalflix');
   assert.equal(nuevo.xui_line_id, '10');
+  assert.equal(nuevo.is_trial, 1);
   const app = db.prepare("SELECT * FROM emby_accounts WHERE username = 'en.app'").get();
   assert.equal(app.player_kind, 'maxplayer');
   assert.equal(app.maxplayer_user_id, '501');
