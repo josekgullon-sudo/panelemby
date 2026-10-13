@@ -91,6 +91,47 @@ test('create_line manda paquete, caducidad, bouquets y member_id', async () => {
   assert.equal(q.get('bouquets_selected'), '["1","2"]');
   assert.equal(q.get('member_id'), '3');
   assert.equal(q.get('is_trial'), '0');
+  assert.equal(q.get('allowed_outputs'), '[1,2,3]');
+});
+
+test('create_line y edit_line mandan allowed_outputs y no lo dejan vacío', async () => {
+  assert.equal(xui.allowedOutputsJson(''), '[1,2,3]');
+  assert.equal(xui.allowedOutputsJson('1, 2, 3'), '[1,2,3]');
+  assert.equal(xui.allowedOutputsJson('[4,5]'), '[4,5]');
+  assert.equal(xui.allowedOutputsJson('no'), '[1,2,3]');
+
+  const seen = fakeTransport({ status: 'STATUS_SUCCESS', data: { id: '7', username: 'ana' } });
+  await xui.createLine({
+    username: 'ana',
+    password: 'secret',
+    expDate: '2026-05-01 10:00',
+    maxConnections: 1,
+    packageId: '4',
+  });
+  assert.equal(seen[0].searchParams.get('action'), 'create_line');
+  assert.equal(seen[0].searchParams.get('allowed_outputs'), '[1,2,3]');
+
+  const previous = config.xuiAllowedOutputs;
+  config.xuiAllowedOutputs = '2, 3';
+  try {
+    await xui.createLine({
+      username: 'ana',
+      password: 'secret',
+      expDate: '2026-05-01 10:00',
+      maxConnections: 1,
+      packageId: '4',
+    });
+    assert.equal(seen[1].searchParams.get('allowed_outputs'), '[2,3]');
+    await xui.editLine('7', { password: 'nueva', exp_date: '2026-06-01 12:00' });
+    const edit = seen[2].searchParams;
+    assert.equal(edit.get('action'), 'edit_line');
+    assert.equal(edit.get('id'), '7');
+    assert.equal(edit.get('password'), 'nueva');
+    assert.equal(edit.get('allowed_outputs'), '[2,3]');
+    assert.notEqual(edit.get('allowed_outputs'), '[]');
+  } finally {
+    config.xuiAllowedOutputs = previous;
+  }
 });
 
 test('si get_lines viene null se recorre get_line y se para tras los fallos', async () => {

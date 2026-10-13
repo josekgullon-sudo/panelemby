@@ -55,6 +55,8 @@ const config = {
   // Certificado autofirmado (IP directa). Solo afecta a las peticiones XUI.
   xuiInsecureTls: flag('XUI_INSECURE_TLS'),
   xuiMemberId: optional('XUI_MEMBER_ID'),
+  // Ids de salida (HLS, MPEG-TS, RTMP). Vacío = 1,2,3. XUI no los copia del paquete.
+  xuiAllowedOutputs: optional('XUI_ALLOWED_OUTPUTS'),
   // URL Xtream/M3U que ve el cliente. No es la URL del admin.
   xuiPublicUrl: optional('XUI_PUBLIC_URL').replace(/\/+$/, ''),
   // get_lines viene vacío en este XUI. Nginx responde 503 con ~10 peticiones

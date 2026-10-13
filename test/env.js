@@ -16,6 +16,7 @@ fill('SESSION_SECRET', 'test-session-secret-value');
 fill('EXPIRY_MODE', 'disable');
 fill('XUI_API_URL', 'https://xui.test/access');
 fill('XUI_API_KEY', 'test-xui-key');
+fill('XUI_ALLOWED_OUTPUTS', '');
 fill('XUI_PUBLIC_URL', 'http://iptv.test:8080');
 fill('MAXPLAYER_API_URL', 'https://mp.test/v3/api/public');
 fill('MAXPLAYER_API_KEY', 'test-mp-key');

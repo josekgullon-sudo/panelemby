@@ -388,6 +388,22 @@ async function scanLines(options = {}) {
   return lines;
 }
 
+// XUI ignora el paquete y deja allowed_outputs en []. Sin esta lista la línea no reproduce.
+// El env es una lista de ids ("1,2,3"); la API quiere el JSON "[1,2,3]".
+function allowedOutputsJson(raw) {
+  const text = (raw == null ? '' : String(raw)).trim() || '1,2,3';
+  const numbers = text
+    .replace(/^\[|\]$/g, '')
+    .split(',')
+    .map((part) => parseInt(part.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return JSON.stringify(numbers.length ? numbers : [1, 2, 3]);
+}
+
+function allowedOutputsParam() {
+  return allowedOutputsJson(config.xuiAllowedOutputs);
+}
+
 async function createLine({ username, password, expDate, maxConnections, packageId, isTrial, bouquets, memberId }) {
   // `package` se envía igual, pero este XUI lo ignora: la línea vuelve sin
   // paquete. El id que vale es el que guardamos en emby_accounts.xui_package_id.
@@ -400,6 +416,7 @@ async function createLine({ username, password, expDate, maxConnections, package
     is_trial: isTrial ? 1 : 0,
     enabled: 1,
     member_id: memberId || config.xuiMemberId || undefined,
+    allowed_outputs: allowedOutputsParam(),
   };
   if (bouquets && bouquets.length) params.bouquets_selected = JSON.stringify(bouquets.map(String));
   const data = await request('create_line', params);
@@ -411,6 +428,9 @@ async function createLine({ username, password, expDate, maxConnections, package
 
 async function editLine(id, fields) {
   const params = Object.assign({ id }, fields);
+  // Un edit_line sin esta lista (contraseña, renovar, ampliar, cambiar plan)
+  // vuelve a dejar allowed_outputs en [] y la línea deja de reproducir.
+  params.allowed_outputs = allowedOutputsParam();
   if (params.exp_date != null && params.exp_date !== '') params.exp_date = formatExpDate(params.exp_date);
   return request('edit_line', params);
 }
@@ -494,6 +514,7 @@ module.exports = {
   trialFlag,
   getLines,
   scanLines,
+  allowedOutputsJson,
   createLine,
   editLine,
   deleteLine,
