@@ -3,7 +3,8 @@
 //
 // Formato confirmado por el panel: GET {XUI_API_URL}?api_key=KEY&action=ACTION&...
 // Acciones de línea según la admin API de XUI.one (create_line, edit_line,
-// delete_line, enable_line, disable_line, get_line, get_packages).
+// delete_line, get_line, get_packages). enable y disable también pasan por
+// edit_line: en este XUI esa acción reescribe la línea entera.
 
 const http = require('http');
 const https = require('https');
@@ -35,6 +36,14 @@ function buildUrl(action, params) {
   url.searchParams.set('action', action);
   for (const [key, value] of Object.entries(params || {})) {
     if (value === undefined || value === null || value === '') continue;
+    // access_output[]=1&access_output[]=2: un array repite la clave.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null || item === '') continue;
+        url.searchParams.append(key, String(item));
+      }
+      continue;
+    }
     url.searchParams.set(key, String(value));
   }
   return url;
@@ -388,6 +397,33 @@ async function scanLines(options = {}) {
   return lines;
 }
 
+// Este XUI ignora allowed_outputs y output_formats. La clave que sí aplica es
+// access_output[] repetida. El env es "1,2,3"; vacío también vale 1,2,3.
+function allowedOutputIds(raw) {
+  if (Array.isArray(raw)) {
+    const numbers = raw
+      .map((part) => parseInt(String(part).trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    return numbers.length ? numbers : null;
+  }
+  const text = (raw == null ? '' : String(raw)).trim();
+  if (!text || text === '[]' || text === 'null') return null;
+  const numbers = text
+    .replace(/^\[|\]$/g, '')
+    .split(/[,\s]+/)
+    .map((part) => parseInt(part.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return numbers.length ? numbers : null;
+}
+
+function configuredOutputIds() {
+  return allowedOutputIds(config.xuiAllowedOutputs) || [1, 2, 3];
+}
+
+function outputIdsFromLine(row) {
+  return allowedOutputIds(row && (row.allowed_outputs ?? row.access_output)) || configuredOutputIds();
+}
+
 async function createLine({ username, password, expDate, maxConnections, packageId, isTrial, bouquets, memberId }) {
   // `package` se envía igual, pero este XUI lo ignora: la línea vuelve sin
   // paquete. El id que vale es el que guardamos en emby_accounts.xui_package_id.
@@ -400,6 +436,7 @@ async function createLine({ username, password, expDate, maxConnections, package
     is_trial: isTrial ? 1 : 0,
     enabled: 1,
     member_id: memberId || config.xuiMemberId || undefined,
+    'access_output[]': configuredOutputIds(),
   };
   if (bouquets && bouquets.length) params.bouquets_selected = JSON.stringify(bouquets.map(String));
   const data = await request('create_line', params);
@@ -409,10 +446,114 @@ async function createLine({ username, password, expDate, maxConnections, package
   return { id: String(id), raw: row };
 }
 
+function lineRow(raw) {
+  if (raw == null || raw === '') return null;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== 'object') return null;
+  return row;
+}
+
+function editScalar(value) {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (typeof value === 'object') return undefined;
+  return value;
+}
+
+function emptyBouquetList(value) {
+  if (value == null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  const text = String(value).trim();
+  return !text || text === '[]' || text === 'null';
+}
+
+function bouquetIds(value) {
+  return normalizeBouquets(value).slice().sort();
+}
+
+function sameBouquetIds(left, right) {
+  const a = bouquetIds(left);
+  const b = bouquetIds(right);
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function applyExpDate(params) {
+  const value = params.exp_date;
+  if (value == null || value === '' || value === 0 || value === '0') {
+    if (value === 0 || value === '0') params.exp_date = '0';
+    return;
+  }
+  params.exp_date = formatExpDate(value);
+}
+
+// edit_line sustituye la línea. Estos campos salen de get_line; el cambio
+// solo pisa lo que el llamador trae. Bouquets vacíos (los de la base del
+// panel, por ejemplo) no entran: borrarían los canales.
+function lineToEditParams(row) {
+  const bouquets = normalizeBouquets(row.bouquets_selected ?? row.bouquet ?? row.bouquets);
+  const notes = row.notes != null && String(row.notes).trim() !== ''
+    ? row.notes
+    : row.admin_notes;
+  const params = {
+    username: row.username,
+    password: row.password == null ? '' : row.password,
+    exp_date: row.exp_date ?? row.expdate,
+    max_connections: row.max_connections,
+    is_trial: row.is_trial,
+    enabled: row.enabled,
+    admin_enabled: row.admin_enabled,
+    member_id: row.member_id,
+    'access_output[]': outputIdsFromLine(row),
+  };
+  if (bouquets.length) params.bouquets_selected = JSON.stringify(bouquets);
+  const ips = editScalar(row.allowed_ips);
+  const ua = editScalar(row.allowed_ua);
+  if (ips != null && ips !== '') params.allowed_ips = ips;
+  if (ua != null && ua !== '') params.allowed_ua = ua;
+  if (notes != null && String(notes).trim() !== '') params.notes = notes;
+  if (row.admin_notes != null && String(row.admin_notes).trim() !== '') params.admin_notes = row.admin_notes;
+  if (row.reseller_notes != null && String(row.reseller_notes).trim() !== '') {
+    params.reseller_notes = row.reseller_notes;
+  }
+  return params;
+}
+
+async function readLineForEdit(id, when) {
+  try {
+    return lineRow(await getLine(id));
+  } catch (err) {
+    throw new XuiError(
+      `No se pudo leer la línea ${id} ${when} (${err && err.message ? err.message : err})`,
+      (err && err.status) || 0
+    );
+  }
+}
+
 async function editLine(id, fields) {
-  const params = Object.assign({ id }, fields);
-  if (params.exp_date != null && params.exp_date !== '') params.exp_date = formatExpDate(params.exp_date);
-  return request('edit_line', params);
+  const row = await readLineForEdit(id, 'antes de editarla');
+  if (!row || !row.username) {
+    throw new XuiError(`get_line no devolvió la línea ${id}`, 404);
+  }
+  const params = lineToEditParams(row);
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (key === 'id' || key === 'allowed_outputs' || key === 'output_formats' || value === undefined) continue;
+    if (key === 'bouquets_selected' && emptyBouquetList(value)) continue;
+    params[key] = value;
+  }
+  params.id = String(id);
+  applyExpDate(params);
+  const sentUser = String(params.username || '').trim();
+  const sentBouquets = params.bouquets_selected;
+  const result = await request('edit_line', params);
+  const after = await readLineForEdit(id, 'después de editarla');
+  const gotUser = String(after && after.username || '').trim();
+  const gotBouquets = after && (after.bouquets_selected ?? after.bouquet ?? after.bouquets);
+  if (gotUser !== sentUser || !sameBouquetIds(sentBouquets, gotBouquets)) {
+    throw new XuiError(
+      `La edición de la línea ${id} no conservó el usuario o los bouquets (quedó «${gotUser || 'sin usuario'}», bouquets ${JSON.stringify(bouquetIds(gotBouquets))})`
+    );
+  }
+  return result;
 }
 
 function lineList(data) {
@@ -470,11 +611,11 @@ async function deleteLine(id) {
 }
 
 async function enableLine(id) {
-  return request('enable_line', { id });
+  return editLine(id, { enabled: 1 });
 }
 
 async function disableLine(id) {
-  return request('disable_line', { id });
+  return editLine(id, { enabled: 0 });
 }
 
 function setTransport(fn) {
@@ -494,6 +635,7 @@ module.exports = {
   trialFlag,
   getLines,
   scanLines,
+  allowedOutputIds,
   createLine,
   editLine,
   deleteLine,
