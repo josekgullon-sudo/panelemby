@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const accounts = require('../services/accounts');
-const { syncXuiLines, memberIds, normalizeMemberIds } = require('../services/xuiSync');
+const { memberIds, normalizeMemberIds, startSyncInBackground, jobSnapshot } = require('../services/xuiSync');
 const { requirePanelRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -310,6 +310,7 @@ router.get(
     maxplayerConfigured: form.maxplayerConfigured,
     xuiNotice: form.notice,
     formAction: '/admin/cuentas',
+    syncJob: jobSnapshot(),
   });
   })
 );
@@ -520,22 +521,21 @@ router.get(
   })
 );
 
-router.post(
-  '/cuentas/sincronizar-xui',
-  wrap(async (req, res) => {
-    try {
-      const summary = await syncXuiLines();
-      const extra = summary.indexError ? ` Aviso Max Player: ${summary.indexError}` : '';
-      req.setFlash(
-        'ok',
-        `XUI sincronizado: ${summary.created} nuevas, ${summary.updated} actualizadas, ${summary.maxplayer} Max Player, ${summary.totalflix} TotalFlix, ${summary.conflicts} conflictos.${extra}`
-      );
-      res.redirect('/admin/cuentas');
-    } catch (err) {
-      backWithError(req, res, err, '/admin/cuentas');
-    }
-  })
-);
+router.get('/cuentas/sincronizar-xui/estado', (req, res) => {
+  res.json(jobSnapshot());
+});
+
+router.post('/cuentas/sincronizar-xui', (req, res) => {
+  const dryRun = req.body.simular === '1';
+  const result = startSyncInBackground({ dryRun });
+  req.setFlash(
+    'ok',
+    result.started
+      ? 'Sincronización de XUI en curso. El avance se actualiza solo en esta página.'
+      : 'Ya hay una sincronización de XUI en curso.'
+  );
+  res.redirect('/admin/cuentas');
+});
 
 router.post(
   '/cuentas/:id/reparar',

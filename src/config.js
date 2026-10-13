@@ -23,6 +23,13 @@ function flag(name) {
   return ['1', 'true', 'yes', 'on'].includes((process.env[name] || '').trim().toLowerCase());
 }
 
+function intEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw || !String(raw).trim()) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
 const config = {
   embyUrl: required('EMBY_URL').replace(/\/+$/, ''),
   embyApiKey: required('EMBY_API_KEY'),
@@ -50,6 +57,13 @@ const config = {
   xuiMemberId: optional('XUI_MEMBER_ID'),
   // URL Xtream/M3U que ve el cliente. No es la URL del admin.
   xuiPublicUrl: optional('XUI_PUBLIC_URL').replace(/\/+$/, ''),
+  // get_lines viene vacío en este XUI. Nginx responde 503 con ~10 peticiones
+  // a la vez: 4 en paralelo, con reintentos. Hay unas 3500 líneas y los ids
+  // pasan de 4700, así que el hueco de parada cubre una racha larga de ids
+  // vacíos y el tope llega más allá del id más alto visto.
+  xuiScanConcurrency: intEnv('XUI_SCAN_CONCURRENCY', 4),
+  xuiScanMissGap: intEnv('XUI_SCAN_MISS_GAP', 2000),
+  xuiScanMaxId: intEnv('XUI_SCAN_MAX_ID', 10000),
 
   maxplayerApiUrl: (optional('MAXPLAYER_API_URL') || 'https://api.maxplayer.tv/v3/api/public').replace(/\/+$/, ''),
   maxplayerApiKey: optional('MAXPLAYER_API_KEY'),

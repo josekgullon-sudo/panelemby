@@ -6,8 +6,12 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const https = require('https');
 const xui = require('../src/services/xui');
+const config = require('../src/config');
 
-after(() => xui.setTransport(null));
+after(() => {
+  xui.setTransport(null);
+  xui.setScanWait(null);
+});
 
 function fakeTransport(payload, status = 200) {
   const seen = [];
@@ -126,6 +130,131 @@ test('get_lines con datos no recorre ids', async () => {
   const lines = await xui.getLines();
   assert.equal(lines[0].username, 'beta');
   assert.deepEqual(seen, ['get_lines']);
+});
+
+test('el barrido usa poca concurrencia, un hueco largo y un id máximo alto', () => {
+  assert.ok(config.xuiScanConcurrency >= 1 && config.xuiScanConcurrency <= 4);
+  assert.ok(config.xuiScanMissGap >= 1500);
+  assert.ok(config.xuiScanMaxId >= 8000);
+});
+
+test('STATUS_FAILURE sin texto es 404', async () => {
+  fakeTransport({ status: 'STATUS_FAILURE' });
+  await assert.rejects(() => xui.getLine(4), (err) => {
+    assert.equal(err.status, 404);
+    assert.match(err.message, /STATUS_FAILURE/);
+    return true;
+  });
+});
+
+test('STATUS_FAILURE sin texto se salta y el escaneo sigue hasta la línea posterior', async () => {
+  xui.setScanWait(async () => {});
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    if (id === '3') {
+      return {
+        status: 200,
+        body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: 3, username: 'tarde', enabled: 1 } }),
+      };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE' }) };
+  });
+  const lines = await xui.getLines({ missStreak: 4, concurrency: 2, maxId: 8 });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].username, 'tarde');
+});
+
+test('un 503 se reintenta y la línea entra', async () => {
+  const waits = [];
+  const hits = {};
+  xui.setScanWait(async (ms) => { waits.push(ms); });
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    hits[id] = (hits[id] || 0) + 1;
+    if (id === '1' && hits[id] < 3) return { status: 503, body: '' };
+    if (id === '1') {
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: 1, username: 'ana', enabled: 1 } }) };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE' }) };
+  });
+  const lines = await xui.getLines({ missStreak: 2, concurrency: 1, maxId: 6 });
+  assert.equal(lines[0].username, 'ana');
+  assert.equal(hits['1'], 3);
+  assert.deepEqual(waits.slice(0, 2), [300, 900]);
+});
+
+test('si un id sigue en 503 la importación se detiene y no lo salta', async () => {
+  const waits = [];
+  const ids = [];
+  xui.setScanWait(async (ms) => { waits.push(ms); });
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    ids.push(id);
+    return { status: 503, body: '' };
+  });
+  await assert.rejects(
+    () => xui.getLines({ missStreak: 50, concurrency: 1, maxId: 20 }),
+    (err) => {
+      assert.match(err.message, /línea 1/);
+      assert.match(err.message, /no saltarse/);
+      return true;
+    }
+  );
+  assert.deepEqual(ids, ['1', '1', '1', '1', '1']);
+  assert.deepEqual(waits, [300, 900, 2700, 8000]);
+});
+
+test('un fallo que no es id ausente no se reintenta ni se salta', async () => {
+  let calls = 0;
+  xui.setScanWait(async () => {});
+  xui.setTransport(async (url) => {
+    if (url.searchParams.get('action') === 'get_lines') return { status: 200, body: 'null' };
+    calls += 1;
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE', error: 'invalid package' }) };
+  });
+  await assert.rejects(
+    () => xui.getLines({ concurrency: 1, missStreak: 5, maxId: 4 }),
+    /línea 1/
+  );
+  assert.equal(calls, 1);
+});
+
+test('un hueco corto no tapa la línea siguiente y el id máximo corta el barrido', async () => {
+  xui.setScanWait(async () => {});
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    if (id === '1' || id === '8') {
+      return {
+        status: 200,
+        body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: Number(id), username: `u${id}`, enabled: 1 } }),
+      };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE' }) };
+  });
+  const lines = await xui.getLines({ missStreak: 10, concurrency: 4, maxId: 30 });
+  assert.deepEqual(lines.map((line) => line.username), ['u1', 'u8']);
+  const rest = [];
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    rest.push(Number(id));
+    if (id === '50') {
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: 50, username: 'lejos', enabled: 1 } }) };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE' }) };
+  });
+  const cut = await xui.getLines({ missStreak: 100, concurrency: 4, maxId: 10 });
+  assert.equal(cut.length, 0);
+  assert.deepEqual([...new Set(rest)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
 test('la petición real de XUI no verifica TLS solo cuando el flag está activo', async () => {
