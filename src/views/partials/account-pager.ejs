@@ -1,0 +1,14 @@
+<% if (pages > 1) { %>
+<nav class="pager" aria-label="Páginas de cuentas">
+  <p class="pager-range"><%= rangeFrom %>–<%= rangeTo %> de <%= total %></p>
+  <div class="pager-links">
+    <% if (pageNum > 1) { %><a class="btn pager-step" href="<%= pageHref(pageNum - 1) %>">Anterior</a><% } %>
+    <% pageWindow.forEach(function (n) { %>
+      <% if (!n) { %><span class="pager-gap" aria-hidden="true">…</span>
+      <% } else if (n === pageNum) { %><span class="pager-current" aria-current="page"><%= n %></span>
+      <% } else { %><a class="pager-num" href="<%= pageHref(n) %>"><%= n %></a><% } %>
+    <% }) %>
+    <% if (pageNum < pages) { %><a class="btn pager-step" href="<%= pageHref(pageNum + 1) %>">Siguiente</a><% } %>
+  </div>
+</nav>
+<% } %>

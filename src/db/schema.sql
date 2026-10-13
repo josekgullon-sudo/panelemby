@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS xui_packages (
 );
 CREATE INDEX IF NOT EXISTS idx_emby_accounts_owner   ON emby_accounts(owner_id);
 CREATE INDEX IF NOT EXISTS idx_emby_accounts_expires ON emby_accounts(expires_at, status);
+-- Listado paginado: el filtro habitual es «no borradas» y el orden, la caducidad.
+CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_expires
+  ON emby_accounts(expires_at, id) WHERE status != 'deleted';
+CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_owner
+  ON emby_accounts(owner_id, expires_at, id) WHERE status != 'deleted';
+CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_created
+  ON emby_accounts(created_at, id) WHERE status != 'deleted';
+CREATE INDEX IF NOT EXISTS idx_emby_accounts_status_expires
+  ON emby_accounts(status, expires_at, id);
 
 -- Libro mayor de créditos: cada movimiento queda registrado, nunca se edita
 CREATE TABLE IF NOT EXISTS credit_transactions (

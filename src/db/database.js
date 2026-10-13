@@ -78,6 +78,10 @@ db.exec(`
     ON emby_accounts(maxplayer_user_id) WHERE maxplayer_user_id IS NOT NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_users_xui_member
     ON panel_users(xui_member_id) WHERE xui_member_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_kind
+    ON emby_accounts(player_kind, expires_at) WHERE status != 'deleted' AND player_kind IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_domain
+    ON emby_accounts(maxplayer_domain_id, expires_at) WHERE status != 'deleted' AND maxplayer_domain_id IS NOT NULL;
 `);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue

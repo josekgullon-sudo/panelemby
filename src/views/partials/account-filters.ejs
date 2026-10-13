@@ -1,0 +1,46 @@
+<form method="get" action="<%= filterAction %>" class="filter-row">
+  <input type="search" name="q" value="<%= q %>" placeholder="<%= searchPlaceholder %>" aria-label="Buscar">
+  <select name="estado" aria-label="Estado">
+    <option value="">Todas</option>
+    <option value="active" <%= estado === 'active' ? 'selected' : '' %>>Activas</option>
+    <option value="expired" <%= estado === 'expired' ? 'selected' : '' %>>Caducadas</option>
+  </select>
+  <select name="servicio" aria-label="Servicio">
+    <option value="">Todos los servicios</option>
+    <option value="emby" <%= servicio === 'emby' ? 'selected' : '' %>>Emby</option>
+    <option value="xui" <%= servicio === 'xui' ? 'selected' : '' %>>XUI</option>
+    <option value="maxplayer" <%= servicio === 'maxplayer' ? 'selected' : '' %>>Max Player</option>
+    <option value="totalflix" <%= servicio === 'totalflix' ? 'selected' : '' %>>TotalFlix</option>
+  </select>
+  <select name="dominio" aria-label="Servidor Max Player">
+    <option value="">Cualquier servidor</option>
+    <option value="pato" <%= dominio === 'pato' ? 'selected' : '' %>>PATO</option>
+    <option value="cisne" <%= dominio === 'cisne' ? 'selected' : '' %>>CISNE</option>
+  </select>
+  <% if (showReseller) { %>
+  <select name="reseller" aria-label="Reseller">
+    <option value="">Todos los resellers</option>
+    <% owners.forEach(function (o) { %>
+      <option value="<%= o.id %>" <%= String(reseller) === String(o.id) ? 'selected' : '' %>><%= o.username %><%= o.role === 'admin' ? ' (admin)' : '' %></option>
+    <% }) %>
+  </select>
+  <% } %>
+  <select name="orden" aria-label="Orden">
+    <option value="vence" <%= sort === 'vence' ? 'selected' : '' %>>Vencimiento</option>
+    <option value="cuenta" <%= sort === 'cuenta' ? 'selected' : '' %>>Cuenta</option>
+    <option value="creada" <%= sort === 'creada' ? 'selected' : '' %>>Creación</option>
+    <option value="estado" <%= sort === 'estado' ? 'selected' : '' %>>Estado</option>
+    <% if (showReseller) { %><option value="reseller" <%= sort === 'reseller' ? 'selected' : '' %>>Reseller</option><% } %>
+    <option value="plan" <%= sort === 'plan' ? 'selected' : '' %>>Plan</option>
+  </select>
+  <select name="dir" aria-label="Dirección">
+    <option value="asc" <%= dir === 'asc' ? 'selected' : '' %>>Ascendente</option>
+    <option value="desc" <%= dir === 'desc' ? 'selected' : '' %>>Descendente</option>
+  </select>
+  <select name="tam" aria-label="Por página">
+    <% [25, 50, 100].forEach(function (n) { %>
+      <option value="<%= n %>" <%= pageSize === n ? 'selected' : '' %>><%= n %> por página</option>
+    <% }) %>
+  </select>
+  <button class="btn">Filtrar</button>
+</form>

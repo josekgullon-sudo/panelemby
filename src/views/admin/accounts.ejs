@@ -7,28 +7,8 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Todas las cuentas <span class="count"><%= list.length %></span></h2>
-    <form method="get" action="/admin/cuentas" class="filter-row">
-      <input type="search" name="q" value="<%= q %>" placeholder="Buscar cuenta o reseller" aria-label="Buscar">
-      <select name="estado" aria-label="Estado">
-        <option value="">Todas</option>
-        <option value="active" <%= estado === 'active' ? 'selected' : '' %>>Activas</option>
-        <option value="expired" <%= estado === 'expired' ? 'selected' : '' %>>Caducadas</option>
-      </select>
-      <select name="servicio" aria-label="Servicio">
-        <option value="">Todos los servicios</option>
-        <option value="emby" <%= servicio === 'emby' ? 'selected' : '' %>>Emby</option>
-        <option value="xui" <%= servicio === 'xui' ? 'selected' : '' %>>XUI</option>
-        <option value="maxplayer" <%= servicio === 'maxplayer' ? 'selected' : '' %>>Max Player</option>
-        <option value="totalflix" <%= servicio === 'totalflix' ? 'selected' : '' %>>TotalFlix</option>
-      </select>
-      <select name="dominio" aria-label="Servidor Max Player">
-        <option value="">Cualquier servidor</option>
-        <option value="pato" <%= dominio === 'pato' ? 'selected' : '' %>>PATO</option>
-        <option value="cisne" <%= dominio === 'cisne' ? 'selected' : '' %>>CISNE</option>
-      </select>
-      <button class="btn">Filtrar</button>
-    </form>
+    <h2>Todas las cuentas <span class="count"><%= total %></span></h2>
+    <%- include('../partials/account-filters', { filterAction: '/admin/cuentas', searchPlaceholder: 'Buscar cuenta o reseller' }) %>
     <form method="post" action="/admin/cuentas/sincronizar-xui" class="inline" onsubmit="return confirm('¿Traer todas las líneas de XUI? No se cobran créditos ni se duplican cuentas.');">
       <button class="btn" <%= syncJob && syncJob.running ? 'disabled' : '' %>>Sincronizar XUI</button>
     </form>
@@ -102,6 +82,7 @@
       <%- include('../partials/account-card', { a: a, d: d, actionBase: '/admin/cuentas', canMove: true, showOwner: true, planHint: planHint }) %>
     <% }) %>
   </div>
+  <%- include('../partials/account-pager') %>
   <% } %>
 </section>
 

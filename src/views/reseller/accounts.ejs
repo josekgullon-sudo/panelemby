@@ -7,28 +7,8 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Cartera <span class="count"><%= list.length %></span></h2>
-    <form method="get" action="/reseller/cuentas" class="filter-row">
-      <input type="search" name="q" value="<%= q %>" placeholder="Buscar cuenta" aria-label="Buscar">
-      <select name="estado" aria-label="Estado">
-        <option value="">Todas</option>
-        <option value="active" <%= estado === 'active' ? 'selected' : '' %>>Activas</option>
-        <option value="expired" <%= estado === 'expired' ? 'selected' : '' %>>Caducadas</option>
-      </select>
-      <select name="servicio" aria-label="Servicio">
-        <option value="">Todos los servicios</option>
-        <option value="emby" <%= servicio === 'emby' ? 'selected' : '' %>>Emby</option>
-        <option value="xui" <%= servicio === 'xui' ? 'selected' : '' %>>XUI</option>
-        <option value="maxplayer" <%= servicio === 'maxplayer' ? 'selected' : '' %>>Max Player</option>
-        <option value="totalflix" <%= servicio === 'totalflix' ? 'selected' : '' %>>TotalFlix</option>
-      </select>
-      <select name="dominio" aria-label="Servidor Max Player">
-        <option value="">Cualquier servidor</option>
-        <option value="pato" <%= dominio === 'pato' ? 'selected' : '' %>>PATO</option>
-        <option value="cisne" <%= dominio === 'cisne' ? 'selected' : '' %>>CISNE</option>
-      </select>
-      <button class="btn">Filtrar</button>
-    </form>
+    <h2>Cartera <span class="count"><%= total %></span></h2>
+    <%- include('../partials/account-filters', { filterAction: '/reseller/cuentas', searchPlaceholder: 'Buscar cuenta' }) %>
   </div>
 
   <% if (list.length === 0) { %>
@@ -62,6 +42,7 @@
       <%- include('../partials/account-card', { a: a, d: d, actionBase: '/reseller/cuentas', canMove: false, showOwner: false, planHint: planHint }) %>
     <% }) %>
   </div>
+  <%- include('../partials/account-pager') %>
   <% } %>
 </section>
 

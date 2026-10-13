@@ -1146,6 +1146,129 @@ function accountListFilters(query) {
   return { servicio, dominio, clauses, params };
 }
 
+const PAGE_SIZES = [25, 50, 100];
+const SORTS = {
+  vence: 'a.expires_at',
+  cuenta: 'a.username',
+  creada: 'a.created_at',
+  estado: 'a.status',
+  reseller: 'p.username COLLATE NOCASE',
+  plan: 'pl.name COLLATE NOCASE',
+};
+
+function pageWindow(page, pages) {
+  if (pages <= 1) return [];
+  const start = Math.max(1, page - 2);
+  const end = Math.min(pages, page + 2);
+  const items = [];
+  if (start > 1) items.push(1);
+  if (start > 2) items.push(0);
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < pages - 1) items.push(0);
+  if (end < pages) items.push(pages);
+  return items;
+}
+
+function accountPageHref(base, state, page) {
+  const params = new URLSearchParams();
+  if (state.q) params.set('q', state.q);
+  if (state.estado) params.set('estado', state.estado);
+  if (state.servicio) params.set('servicio', state.servicio);
+  if (state.dominio) params.set('dominio', state.dominio);
+  if (state.reseller) params.set('reseller', String(state.reseller));
+  if (state.pageSize !== 50) params.set('tam', String(state.pageSize));
+  if (state.sort !== 'vence') params.set('orden', state.sort);
+  if (state.dir !== 'asc') params.set('dir', state.dir);
+  if (page > 1) params.set('pagina', String(page));
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+// Lista paginada. Filtros, búsqueda y orden se aplican en SQL sobre todas
+// las cuentas, no sobre la página ya cortada. ownerId limita al reseller.
+function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
+  const src = query || {};
+  const q = String(src.q || '').trim();
+  const estado = ['active', 'expired'].includes(src.estado) ? src.estado : '';
+  const filters = accountListFilters(src);
+  const pageSize = PAGE_SIZES.includes(parseInt(src.tam, 10)) ? parseInt(src.tam, 10) : 50;
+  let sort = Object.prototype.hasOwnProperty.call(SORTS, src.orden) ? src.orden : 'vence';
+  if (ownerId && sort === 'reseller') sort = 'vence';
+  const dir = src.dir === 'desc' ? 'desc' : 'asc';
+  let reseller = '';
+  if (!ownerId) {
+    const raw = parseInt(src.reseller, 10);
+    if (Number.isInteger(raw) && raw > 0) reseller = String(raw);
+  }
+
+  const clauses = ["a.status != 'deleted'"];
+  const params = [];
+  if (ownerId) {
+    clauses.push('a.owner_id = ?');
+    params.push(ownerId);
+  } else if (reseller) {
+    clauses.push('a.owner_id = ?');
+    params.push(parseInt(reseller, 10));
+  }
+  if (q) {
+    if (ownerId) {
+      clauses.push('a.username LIKE ?');
+      params.push(`%${q}%`);
+    } else {
+      clauses.push('(a.username LIKE ? OR p.username LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`);
+    }
+  }
+  if (estado) {
+    clauses.push('a.status = ?');
+    params.push(estado);
+  }
+  if (filters.clauses.length) {
+    clauses.push(...filters.clauses);
+    params.push(...filters.params);
+  }
+
+  const from = `FROM emby_accounts a
+    JOIN panel_users p ON p.id = a.owner_id
+    LEFT JOIN plans pl ON pl.id = a.plan_id
+    WHERE ${clauses.join(' AND ')}`;
+  const total = db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...params).n;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  let page = parseInt(src.pagina, 10);
+  if (!Number.isInteger(page) || page < 1) page = 1;
+  if (page > pages) page = pages;
+  const offset = (page - 1) * pageSize;
+  const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
+  const list = db.prepare(
+    `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
+     ${from}
+     ORDER BY ${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}
+     LIMIT ? OFFSET ?`
+  ).all(...params, pageSize, offset);
+
+  const state = {
+    q,
+    estado,
+    servicio: filters.servicio,
+    dominio: filters.dominio,
+    reseller,
+    pageSize,
+    sort,
+    dir,
+    total,
+    page,
+    pages,
+    pageWindow: pageWindow(page, pages),
+    from: total === 0 ? 0 : offset + 1,
+    to: offset + list.length,
+    list,
+    href(n) {
+      return accountPageHref(base, state, n);
+    },
+  };
+  return state;
+}
+
 function chargeReseller(actor, cost, reason, accountId) {
   if (actor.role !== 'reseller' || !cost) return;
   deductCredits(actor.id, cost, reason, accountId, actor.id);
@@ -1440,6 +1563,7 @@ module.exports = {
   domainLabel,
   nextDomainLabel,
   accountListFilters,
+  listAccounts,
   formatClientDate,
   clockFrom,
   setIntegrations,
