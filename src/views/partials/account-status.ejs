@@ -1,0 +1,5 @@
+<% if (a.status === 'active' && d < 0) { %><span class="badge badge-err">venció hace <%= -d %> d</span>
+<% } else if (a.status === 'active' && d === 0) { %><span class="badge badge-warn">vence hoy</span>
+<% } else if (a.status === 'active' && d <= 7) { %><span class="badge badge-warn">caduca pronto</span>
+<% } else if (a.status === 'active') { %><span class="badge badge-ok">activa</span>
+<% } else { %><span class="badge badge-err">caducada</span><% } %>

@@ -82,6 +82,15 @@ async function mpRequest(method, apiPath, body, options = {}) {
     return mpRequest(method, apiPath, body, Object.assign({}, options, { attempt: attempt + 1 }));
   }
 
+  if (res.status === 429 && attempt < RETRY_DELAYS_MS.length) {
+    const header = res.headers.get('retry-after');
+    const blob = `${header || ''} ${(payload && (payload.error || payload.message)) || text || ''}`;
+    const mentioned = /reintenta en\s+(\d+)/i.exec(blob);
+    const seconds = mentioned ? Number(mentioned[1]) : Number(header);
+    const waitMs = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : RETRY_DELAYS_MS[attempt];
+    await waitForRetry(waitMs);
+    return mpRequest(method, apiPath, body, Object.assign({}, options, { attempt: attempt + 1 }));
+  }
   if (res.status === 429) {
     const retry = res.headers.get('retry-after');
     throw new MaxPlayerError(
@@ -124,9 +133,10 @@ async function listUsersPage({ limit = 100, afterId } = {}) {
 }
 
 async function listAllUsers() {
+  // GET /users paginado (100 por página). ~1800 usuarios caben de sobra.
   const all = [];
   let afterId = '';
-  for (let page = 0; page < 40; page += 1) {
+  for (let page = 0; page < 60; page += 1) {
     const batch = await listUsersPage({ limit: 100, afterId: afterId || undefined });
     all.push(...batch.users);
     if (!batch.hasMore) break;
@@ -167,7 +177,20 @@ async function searchUsers(username, options = {}) {
   return mpRequest('POST', `/users/search${query ? `?${query}` : ''}`, { username });
 }
 
+const SEARCH_GAP_MS = 1000;
+let lastSearchAt = 0;
+
+async function paceSearch() {
+  const elapsed = Date.now() - lastSearchAt;
+  if (lastSearchAt && elapsed < SEARCH_GAP_MS) await waitForRetry(SEARCH_GAP_MS - elapsed);
+  lastSearchAt = Date.now();
+}
+
+// La importación no debe llamar esto por cada línea: el índice de GET /users
+// ya trae a todo el mundo. Si hiciera falta, va espaciado y un 429
+// «Reintenta en N s» espera ese N antes de repetir.
 async function searchAll(username) {
+  await paceSearch();
   const users = [];
   let afterId = '';
   for (let page = 0; page < 40; page += 1) {
@@ -210,6 +233,46 @@ async function deleteCustomerDevice(userId, deviceId) {
 async function listCustomerPlaylists(userId) {
   const payload = await mpRequest('GET', `/customers/${encodeURIComponent(userId)}/lists`);
   return asList(payload);
+}
+
+async function editCustomerPlaylist(userId, listId, fields) {
+  return mpRequest(
+    'PUT',
+    `/customers/${encodeURIComponent(userId)}/lists/${encodeURIComponent(listId)}`,
+    fields
+  );
+}
+
+async function deleteCustomerPlaylist(userId, listId) {
+  return mpRequest(
+    'DELETE',
+    `/customers/${encodeURIComponent(userId)}/lists/${encodeURIComponent(listId)}`
+  );
+}
+
+// PUT /users/list en el panel real añade otra lista («New list») y deja la
+// anterior. Reparar tiene que quedar con una sola, en el dominio de destino.
+async function replacePlaylist(userId, creds) {
+  const lists = await listCustomerPlaylists(userId);
+  const withId = lists.filter((list) => list && (list.id || list.list_id));
+  const body = {
+    domain_id: String(creds.domainId),
+    iptv_username: creds.iptvUsername,
+    iptv_password: creds.iptvPassword,
+  };
+  if (!withId.length) {
+    await addList(listBody({ userId, domainId: creds.domainId, iptvUsername: creds.iptvUsername, iptvPassword: creds.iptvPassword }));
+    return { created: true, kept: null, deleted: 0 };
+  }
+  const keep = withId[0];
+  const keepId = String(keep.id || keep.list_id);
+  await editCustomerPlaylist(userId, keepId, body);
+  let deleted = 0;
+  for (const list of withId.slice(1)) {
+    await deleteCustomerPlaylist(userId, list.id || list.list_id);
+    deleted += 1;
+  }
+  return { created: false, kept: keepId, deleted };
 }
 
 // DELETE /users/devices/{id} borra todos los dispositivos. Si esa ruta falla,
@@ -320,6 +383,9 @@ module.exports = {
   listCustomerDevices,
   deleteCustomerDevice,
   listCustomerPlaylists,
+  editCustomerPlaylist,
+  deleteCustomerPlaylist,
+  replacePlaylist,
   listUsersPage,
   listAllUsers,
   setRetryWait,

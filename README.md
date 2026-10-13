@@ -54,7 +54,7 @@ Al crear la cuenta, o al añadir un servicio que faltaba, se abre el aviso de si
 
 La ficha de cada cuenta muestra dispositivos de Emby y de Max Player, caducidad por servicio, ids, dominio PATO/CISNE y reseller. Desde ahí se puede crear el servicio que falte, ampliar Emby o XUI por separado (cobra como una renovación de ese servicio) y pulsar **Reparar** (llave inglesa): borra los dispositivos de Max Player y cambia el servidor entre PATO y CISNE.
 
-**Sincronizar XUI** (admin) o `npm run import-xui` mete todas las líneas. No duplica (por id de línea o usuario) y no cobra. Si el usuario ya es de Emby, sigue siéndolo y se le añade la línea. El `member_id` de XUI, si está puesto en el reseller, asigna la cuenta; si no, queda en el admin.
+**Sincronizar XUI** (admin) o `npm run import-xui` mete todas las líneas. No duplica (por id de línea o usuario) y no cobra. Si el usuario ya es de Emby, sigue siéndolo y se le añade la línea. En este XUI `get_lines` devuelve null: el import recorre `get_line` por id (de 10 en 10) y para tras una racha de ids vacíos. Max Player se reconoce con el listado paginado `GET /users`, sin buscar línea a línea. El reseller puede tener varios `member_id` separados por comas (por ejemplo `3,10`); si la línea trae uno de ellos, se le asigna. Si no, queda en el admin.
 
 ### Créditos
 
@@ -69,7 +69,7 @@ Si se piden varios servicios se suman. El admin no gasta saldo. Si XUI se crea y
 No hay que lanzar nada a mano. Al arrancar, el panel añade las columnas que falten:
 
 - `emby_accounts`: `has_emby`, `xui_line_id`, `xui_package_id`, `xui_package_name`, `xui_bouquets`, `player_kind` (`totalflix` o `maxplayer`), `maxplayer_user_id`, `maxplayer_list_ok`, `maxplayer_domain_id`, `emby_expires_at`, `xui_expires_at`, `emby_cut`, `xui_cut`, `provision_error`
-- `panel_users.xui_member_id`: relaciona un reseller con el `member_id` de XUI
+- `panel_users.xui_member_id`: uno o varios `member_id` de XUI, separados por comas
 - `plans`: `xui_credit_cost`, `maxplayer_credit_cost` (las dos a 0)
 - tabla nueva `xui_packages` (catálogo cacheado; el precio en créditos que pongas se conserva al actualizar)
 
@@ -97,8 +97,8 @@ Conviene contrastar, creando una línea de prueba y borrándola, que la API de t
 9. Max Player no tiene “desactivar usuario”. Al caducar se desactiva la línea XUI (la app deja de reproducir) y se intenta cerrar sus dispositivos. Al borrar sí se llama a `DELETE /users/{id}`.
 10. `XUI_INSECURE_TLS=1` solo relaja el certificado de XUI. No lo dejes puesto si más adelante el certificado es válido.
 11. Un 503 «Could not verify public API allowance» se reintenta solo. Si sigue fallando, el aviso debe decirlo.
-12. Reparar: `DELETE /users/devices/{id}` y, si falla, borrar uno a uno en `/customers/{id}/devices`. El cambio de servidor es `PUT /users/list` con el `domain_id` de PATO o CISNE (`MAXPLAYER_DOMAIN_PATO_ID`, `MAXPLAYER_DOMAIN_CISNE_ID`).
-13. `npm run import-xui` con una línea de prueba: no duplica al repetirlo, no cobra, y marca Max Player si el usuario IPTV está en `GET /users` (paginado) o en `POST /users/search`.
+12. Reparar: `DELETE /users/devices/{id}` y, si falla, borrar uno a uno en `/customers/{id}/devices`. El cambio de servidor edita la lista que ya existe (`PUT /customers/{id}/lists/{list_id}`) y borra las demás, para que quede una sola en PATO o CISNE. `PUT /users/list` en este panel añade otra lista («New list») y no sirve para el cambio.
+13. `npm run import-xui`: si `get_lines` viene vacío, recorre `get_line` por id. No duplica al repetirlo, no cobra, y marca Max Player solo si el usuario IPTV está en `GET /users` paginado. Un 429 «Reintenta en N s» espera esos segundos.
 
 ## Caducidades
 

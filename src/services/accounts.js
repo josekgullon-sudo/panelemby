@@ -1334,7 +1334,7 @@ async function repairMaxPlayer({ accountId, actor }) {
   const current = String(account.maxplayer_domain_id || '');
   const target = current === pato ? cisne : pato;
   await M().deleteAllDevices(account.maxplayer_user_id);
-  await M().attachPlaylist(account.maxplayer_user_id, {
+  await M().replacePlaylist(account.maxplayer_user_id, {
     domainId: target,
     iptvUsername: account.username,
     iptvPassword: password,

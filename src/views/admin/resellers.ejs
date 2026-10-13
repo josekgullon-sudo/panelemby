@@ -44,8 +44,8 @@
           <details>
             <summary>XUI</summary>
             <form method="post" action="/admin/resellers/<%= r.id %>/xui" class="form-stack">
-              <input type="text" name="xui_member_id" value="<%= r.xui_member_id || '' %>" placeholder="member_id de XUI" aria-label="member_id de XUI">
-              <p class="hint">Si coincide con la línea, la sincronización se la asigna a este reseller.</p>
+              <input type="text" name="xui_member_id" value="<%= r.xui_member_id || '' %>" placeholder="3, 10" aria-label="member_id de XUI">
+              <p class="hint">Uno o varios member_id separados por comas. Si la línea trae uno de ellos, se asigna a este reseller.</p>
               <button class="btn btn-sm">Guardar</button>
             </form>
           </details>

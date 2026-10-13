@@ -277,6 +277,54 @@ async function getLine(id) {
   return request('get_line', { id });
 }
 
+// Este XUI responde null a get_lines. Se recorren los ids con get_line.
+const SCAN_CONCURRENCY = 10;
+const SCAN_MISS_STREAK = 250;
+const SCAN_MAX_ID = 100000;
+
+function lineFromPayload(raw) {
+  if (raw == null || raw === '') return null;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== 'object') return null;
+  const line = normalizeLine(row);
+  if (!line.id || !line.username) return null;
+  return line;
+}
+
+async function scanLines({ concurrency = SCAN_CONCURRENCY, missStreak = SCAN_MISS_STREAK, maxId = SCAN_MAX_ID } = {}) {
+  const lines = [];
+  let nextId = 1;
+  let misses = 0;
+  while (nextId <= maxId && misses < missStreak) {
+    const ids = [];
+    const room = missStreak - misses;
+    const batch = Math.min(concurrency, room, maxId - nextId + 1);
+    for (let i = 0; i < batch; i += 1) {
+      ids.push(nextId);
+      nextId += 1;
+    }
+    const results = await Promise.all(ids.map(async (id) => {
+      try {
+        return { raw: await getLine(id) };
+      } catch (err) {
+        if (err && err.status === 404) return { raw: null };
+        throw err;
+      }
+    }));
+    for (const result of results) {
+      const line = lineFromPayload(result.raw);
+      if (!line) {
+        misses += 1;
+        if (misses >= missStreak) break;
+      } else {
+        misses = 0;
+        lines.push(line);
+      }
+    }
+  }
+  return lines;
+}
+
 async function createLine({ username, password, expDate, maxConnections, packageId, isTrial, bouquets, memberId }) {
   // `package` se envía igual, pero este XUI lo ignora: la línea vuelve sin
   // paquete. El id que vale es el que guardamos en emby_accounts.xui_package_id.
@@ -333,9 +381,12 @@ function normalizeLine(raw) {
 
 // get_lines puede devolver el listado entero o un sobre con total.
 // Si declara un total mayor que la página, se pide el resto con start/limit.
-async function getLines() {
+// En este XUI get_lines (y get_users) devuelve null: entonces se pide get_line
+// por id, de 10 en 10, y se para tras una racha larga de ids vacíos.
+async function getLines(options = {}) {
   const first = await request('get_lines');
   const page = lineList(first).map(normalizeLine).filter((line) => line.id && line.username);
+  if (!page.length) return scanLines(options);
   const total = first && !Array.isArray(first) ? asInt(first.total ?? first.recordsTotal ?? first.count) : null;
   if (!total || page.length >= total) return page;
   const all = page.slice();
@@ -376,6 +427,7 @@ module.exports = {
   getPackages,
   getLine,
   getLines,
+  scanLines,
   createLine,
   editLine,
   deleteLine,
