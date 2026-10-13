@@ -147,6 +147,39 @@ test('STATUS_FAILURE sin texto es 404', async () => {
   });
 });
 
+test('get_line devuelve is_trial como texto "1" y la línea es prueba', async () => {
+  xui.setScanWait(async () => {});
+  xui.setTransport(async (url) => {
+    const action = url.searchParams.get('action');
+    const id = url.searchParams.get('id');
+    if (action === 'get_lines') return { status: 200, body: 'null' };
+    if (id === '1') {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          status: 'STATUS_SUCCESS',
+          data: {
+            id: '1',
+            username: 'demo.prueba',
+            password: 'x',
+            exp_date: null,
+            is_trial: '1',
+            enabled: '1',
+            member_id: '4',
+          },
+        }),
+      };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_FAILURE' }) };
+  });
+  const lines = await xui.getLines({ missStreak: 2, concurrency: 1, maxId: 4 });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].is_trial, true);
+  assert.equal(lines[0].exp_date, null);
+  assert.equal(xui.trialFlag('0'), false);
+  assert.equal(xui.trialFlag('1'), true);
+});
+
 test('STATUS_FAILURE sin texto se salta y el escaneo sigue hasta la línea posterior', async () => {
   xui.setScanWait(async () => {});
   xui.setTransport(async (url) => {

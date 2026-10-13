@@ -80,15 +80,34 @@ function writtenStatus(row, timing) {
   return timing.past && !embyAlive ? 'expired' : 'active';
 }
 
+function trialBit(line) {
+  const value = line && line.is_trial;
+  if (value === true || value === 1) return 1;
+  if (typeof value === 'string' && /^(1|true|yes|on)$/i.test(value.trim())) return 1;
+  return 0;
+}
+
 function when(line, parseExpToDate) {
-  const date = parseExpToDate(line.exp_date);
+  // Sin exp_date la línea es ilimitada. No se inventa una caducidad de 30 días.
+  let date = null;
+  try {
+    date = typeof parseExpToDate === 'function' ? parseExpToDate(line.exp_date) : null;
+  } catch {
+    date = null;
+  }
   if (!date || Number.isNaN(date.getTime())) {
-    return {
-      expiresAt: toSqlDate(new Date(Date.now() + 30 * 24 * 3600 * 1000)),
-      past: !line.enabled,
-    };
+    return { expiresAt: null, past: !line.enabled };
   }
   return { expiresAt: toSqlDate(date), past: !line.enabled || date.getTime() < Date.now() };
+}
+
+function mergedExpiry(embyAt, xuiAt) {
+  const dates = [embyAt, xuiAt].filter(Boolean);
+  if (!dates.length) return null;
+  const nowSql = toSqlDate(new Date());
+  const future = dates.filter((value) => value > nowSql);
+  const pool = future.length ? future : dates;
+  return pool.slice().sort()[future.length ? 0 : pool.length - 1];
 }
 
 function formatSyncReport(summary) {
@@ -228,16 +247,15 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           player && player.domainId ? player.domainId : null,
           timing.expiresAt,
           timing.past ? 1 : 0,
-          line.is_trial ? 1 : 0
+          trialBit(line)
         );
       } else if (!dryRun) {
         const packageId = row.xui_package_id || line.package_id || null;
         const keepKind = storedKind;
         const mpId = indexError ? row.maxplayer_user_id : player ? player.id : null;
         const domainId = indexError ? row.maxplayer_domain_id : player && player.domainId ? player.domainId : null;
-        const nowSql = toSqlDate(new Date());
-        const embyAlive = !!(row.emby_user_id && row.emby_expires_at && row.emby_expires_at > nowSql && !row.emby_cut);
-        const expiresAt = embyAlive && row.emby_expires_at < timing.expiresAt ? row.emby_expires_at : timing.expiresAt;
+        const embyAt = row.emby_user_id ? row.emby_expires_at : null;
+        const expiresAt = mergedExpiry(embyAt, timing.expiresAt);
         db.prepare(
           `UPDATE emby_accounts
            SET xui_line_id = ?, xui_expires_at = ?, expires_at = ?, status = ?,
@@ -257,7 +275,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           packageId,
           timing.past ? 1 : 0,
           owner.id,
-          line.is_trial ? 1 : 0,
+          trialBit(line),
           line.password ? secret.encrypt(line.password) : null,
           row.id
         );

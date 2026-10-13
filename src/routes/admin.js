@@ -65,11 +65,12 @@ router.get('/', (req, res) => {
     .prepare(
       `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
               a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial,
+              a.player_kind, a.maxplayer_user_id,
               p.username AS owner, pl.duration_days
        FROM emby_accounts a
        JOIN panel_users p ON p.id = a.owner_id
        LEFT JOIN plans pl ON pl.id = a.plan_id
-       WHERE a.status = 'active' AND a.expires_at <= datetime('now', '+7 days')
+       WHERE a.status = 'active' AND a.expires_at IS NOT NULL AND a.expires_at <= datetime('now', '+7 days')
        ORDER BY a.expires_at LIMIT 20`
     )
     .all();

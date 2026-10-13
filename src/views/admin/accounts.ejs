@@ -8,10 +8,12 @@
 <section class="panel">
   <div class="panel-head">
     <h2>Todas las cuentas <span class="count"><%= total %></span></h2>
-    <%- include('../partials/account-filters', { filterAction: '/admin/cuentas', searchPlaceholder: 'Buscar cuenta o reseller' }) %>
     <form method="post" action="/admin/cuentas/sincronizar-xui" class="inline" onsubmit="return confirm('¿Traer todas las líneas de XUI? No se cobran créditos ni se duplican cuentas.');">
-      <button class="btn" <%= syncJob && syncJob.running ? 'disabled' : '' %>>Sincronizar XUI</button>
+      <button class="btn btn-secondary" <%= syncJob && syncJob.running ? 'disabled' : '' %>>Sincronizar XUI</button>
     </form>
+  </div>
+  <div class="list-toolbar">
+    <%- include('../partials/account-filters', { filterAction: '/admin/cuentas', searchPlaceholder: 'Buscar cuenta o reseller' }) %>
   </div>
 
   <% if (syncJob && (syncJob.running || syncJob.finishedAt)) {
@@ -64,9 +66,9 @@
         <td><%= a.owner %></td>
         <td class="td-dim"><%= a.plan || '—' %></td>
         <td class="td-dim"><%= a.created_at.slice(0, 10) %></td>
-        <td><%= a.expires_at.slice(0, 10) %></td>
+        <td><% if (a.expires_at) { %><%= a.expires_at.slice(0, 10) %><% } else { %><span class="td-dim">Sin caducidad</span><% } %></td>
         <td class="td-meter">
-          <% if (a.status === 'active') { %>
+          <% if (a.status === 'active' && a.expires_at) { %>
             <%- include('../partials/meter', { days: d, duration: a.duration_days }) %>
             <span class="meter-days"><%= d < 0 ? 'hace ' + (-d) + ' d' : d === 0 ? 'hoy' : d + ' d' %></span>
           <% } else { %><span class="td-dim">—</span><% } %>

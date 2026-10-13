@@ -53,11 +53,74 @@ ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN x
 ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
 ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
 
+// Una instalación antigua tiene expires_at NOT NULL. Las líneas XUI sin fecha
+// se guardan con NULL (sin caducidad), así que hay que poder dejarlo vacío.
+function relaxExpiresNotNull() {
+  const cols = db.prepare('PRAGMA table_info(emby_accounts)').all();
+  const expires = cols.find((col) => col.name === 'expires_at');
+  if (!expires || !expires.notnull) return;
+  const names = cols.map((col) => col.name);
+  const kept = [
+    'id', 'emby_user_id', 'username', 'password_hash', 'password_enc', 'owner_id', 'plan_id',
+    'expires_at', 'status', 'notes', 'created_at', 'has_emby', 'xui_line_id', 'xui_package_id',
+    'xui_package_name', 'xui_bouquets', 'player_kind', 'maxplayer_user_id', 'maxplayer_list_ok',
+    'maxplayer_domain_id', 'provision_error', 'emby_expires_at', 'xui_expires_at', 'emby_cut',
+    'xui_cut', 'is_trial',
+  ];
+  const extra = names.filter((name) => !kept.includes(name));
+  if (extra.length) {
+    throw new Error(`No se puede dejar expires_at vacío: columnas sin copiar (${extra.join(', ')})`);
+  }
+  const list = names.join(', ');
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE emby_accounts_new (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          emby_user_id        TEXT UNIQUE,
+          username            TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          password_hash       TEXT NOT NULL,
+          password_enc        TEXT,
+          owner_id            INTEGER NOT NULL REFERENCES panel_users(id),
+          plan_id             INTEGER REFERENCES plans(id),
+          expires_at          TEXT,
+          status              TEXT NOT NULL DEFAULT 'active'
+                              CHECK (status IN ('active', 'expired', 'deleted')),
+          notes               TEXT,
+          created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+          has_emby            INTEGER NOT NULL DEFAULT 1,
+          xui_line_id         TEXT,
+          xui_package_id      TEXT,
+          xui_package_name    TEXT,
+          xui_bouquets        TEXT,
+          player_kind         TEXT,
+          maxplayer_user_id   TEXT,
+          maxplayer_list_ok   INTEGER NOT NULL DEFAULT 0,
+          maxplayer_domain_id TEXT,
+          provision_error     TEXT,
+          emby_expires_at     TEXT,
+          xui_expires_at      TEXT,
+          emby_cut            INTEGER NOT NULL DEFAULT 0,
+          xui_cut             INTEGER NOT NULL DEFAULT 0,
+          is_trial            INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO emby_accounts_new (${list}) SELECT ${list} FROM emby_accounts;
+        DROP TABLE emby_accounts;
+        ALTER TABLE emby_accounts_new RENAME TO emby_accounts;
+      `);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+relaxExpiresNotNull();
+
 db.exec(`
   UPDATE emby_accounts SET emby_expires_at = expires_at
-   WHERE emby_expires_at IS NULL AND (has_emby = 1 OR emby_user_id IS NOT NULL);
-  UPDATE emby_accounts SET xui_expires_at = expires_at
-   WHERE xui_expires_at IS NULL AND (xui_line_id IS NOT NULL OR player_kind IS NOT NULL);
+   WHERE emby_expires_at IS NULL AND expires_at IS NOT NULL AND (has_emby = 1 OR emby_user_id IS NOT NULL);
+  -- xui_expires_at vacío es una línea sin caducidad. No se copia expires_at.
   UPDATE emby_accounts SET emby_cut = 1
    WHERE status = 'expired' AND emby_user_id IS NOT NULL AND emby_cut = 0;
   UPDATE emby_accounts SET xui_cut = 1
@@ -81,6 +144,16 @@ db.exec(`
     ON emby_accounts(maxplayer_user_id) WHERE maxplayer_user_id IS NOT NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_users_xui_member
     ON panel_users(xui_member_id) WHERE xui_member_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_owner ON emby_accounts(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_expires ON emby_accounts(expires_at, status);
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_expires
+    ON emby_accounts(expires_at, id) WHERE status != 'deleted';
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_owner
+    ON emby_accounts(owner_id, expires_at, id) WHERE status != 'deleted';
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_created
+    ON emby_accounts(created_at, id) WHERE status != 'deleted';
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_status_expires
+    ON emby_accounts(status, expires_at, id);
   CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_kind
     ON emby_accounts(player_kind, expires_at) WHERE status != 'deleted' AND player_kind IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_domain

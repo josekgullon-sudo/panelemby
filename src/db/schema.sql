@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     password_enc        TEXT,
     owner_id            INTEGER NOT NULL REFERENCES panel_users(id),
     plan_id             INTEGER REFERENCES plans(id),
-    expires_at          TEXT NOT NULL,
+    expires_at          TEXT,
     status              TEXT NOT NULL DEFAULT 'active'
                         CHECK (status IN ('active', 'expired', 'deleted')),
     notes               TEXT,

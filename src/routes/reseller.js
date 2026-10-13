@@ -28,9 +28,11 @@ router.get('/', (req, res) => {
   const upcoming = db
     .prepare(
       `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
-              a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial, pl.duration_days
+              a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial,
+              a.player_kind, a.maxplayer_user_id, pl.duration_days
        FROM emby_accounts a LEFT JOIN plans pl ON pl.id = a.plan_id
-       WHERE a.owner_id = ? AND a.status = 'active' AND a.expires_at <= datetime('now', '+7 days')
+       WHERE a.owner_id = ? AND a.status = 'active' AND a.expires_at IS NOT NULL
+         AND a.expires_at <= datetime('now', '+7 days')
        ORDER BY a.expires_at LIMIT 20`
     )
     .all(req.user.id);

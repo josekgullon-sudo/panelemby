@@ -86,4 +86,11 @@ test('la migración añade ids externos y costes sin perder la cuenta vieja', ()
   assert.equal(plan.screens, 1);
 
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'xui_packages'").get());
+
+  const expires = db.prepare('PRAGMA table_info(emby_accounts)').all().find((col) => col.name === 'expires_at');
+  assert.equal(expires.notnull, 0);
+  db.prepare(
+    "INSERT INTO emby_accounts (username, password_hash, owner_id, plan_id, expires_at, status) VALUES ('sinfecha', 'h', 1, 1, NULL, 'active')"
+  ).run();
+  assert.equal(db.prepare("SELECT expires_at FROM emby_accounts WHERE username = 'sinfecha'").get().expires_at, null);
 });

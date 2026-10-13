@@ -34,6 +34,12 @@ db.prepare(
      has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
    ) VALUES ('solo.xui', ?, ?, ?, ?, 'active', 0, 'line-viva', 'totalflix', ?, 0, 0)`
 ).run(hash, owner.id, plan.id, sqlDays(40), sqlDays(40));
+db.prepare(
+  `INSERT INTO emby_accounts (
+     username, password_hash, owner_id, plan_id, expires_at, status,
+     has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+   ) VALUES ('libre', ?, ?, ?, NULL, 'active', 0, 'line-libre', 'totalflix', NULL, 0, 0)`
+).run(hash, owner.id, plan.id);
 
 const calls = [];
 accounts.setIntegrations({
@@ -76,4 +82,11 @@ test('cada servicio caduca solo y el borrado espera a la fecha más tardía', as
   assert.equal(viva.status, 'active');
   assert.equal(viva.xui_cut, 0);
   assert.equal(calls.some((c) => c[1] === 'line-viva'), false);
+
+  const libre = db.prepare("SELECT * FROM emby_accounts WHERE username = 'libre'").get();
+  assert.equal(libre.status, 'active');
+  assert.equal(libre.expires_at, null);
+  assert.equal(libre.xui_expires_at, null);
+  assert.equal(libre.xui_cut, 0);
+  assert.equal(calls.some((c) => c[1] === 'line-libre'), false);
 });

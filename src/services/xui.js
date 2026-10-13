@@ -221,6 +221,17 @@ function truthy(value) {
   return value === true || value === 1 || value === '1' || value === 'true' || value === 'yes';
 }
 
+// get_line devuelve is_trial como texto: "1" es prueba y "0" no lo es.
+// En JavaScript el texto "0" es verdadero, así que no vale un if suelto.
+function trialFlag(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    return text === '1' || text === 'true' || text === 'yes' || text === 'on';
+  }
+  return false;
+}
+
 function asInt(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = parseInt(value, 10);
@@ -278,6 +289,15 @@ async function getPackages() {
 
 async function getLine(id) {
   return request('get_line', { id });
+}
+
+async function fetchLine(id) {
+  const raw = await readLine(id);
+  const line = lineFromPayload(raw);
+  if (!line) {
+    throw new XuiError(`La línea ${id} no trae usuario`, 404);
+  }
+  return line;
 }
 
 // Reintentos solo de lectura. create_line / edit_line no se repiten: un 503
@@ -415,7 +435,7 @@ function normalizeLine(raw) {
     member_id: raw.member_id == null || raw.member_id === '' ? '' : String(raw.member_id),
     max_connections: asInt(raw.max_connections),
     enabled: raw.enabled === undefined ? true : truthy(raw.enabled),
-    is_trial: truthy(raw.is_trial),
+    is_trial: trialFlag(raw.is_trial),
     bouquets: normalizeBouquets(raw.bouquets_selected ?? raw.bouquet ?? raw.bouquets),
     // Informativo. No sustituye al paquete guardado en el panel.
     package_id: packageId,
@@ -470,6 +490,8 @@ module.exports = {
   parseExpToDate,
   getPackages,
   getLine,
+  fetchLine,
+  trialFlag,
   getLines,
   scanLines,
   createLine,

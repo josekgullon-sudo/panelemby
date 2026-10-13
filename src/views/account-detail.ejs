@@ -21,7 +21,7 @@
     <% } %>
     <% if (account.xui_line_id || account.player_kind) { %>
       <div><dt>Línea XUI</dt><dd><%= account.xui_line_id || 'pendiente' %></dd></div>
-      <div><dt>Caduca XUI</dt><dd><%= account.xui_expires_at ? formatClientDate(account.xui_expires_at) : '—' %><%= account.xui_cut ? ' · cortada' : '' %></dd></div>
+      <div><dt>Caduca XUI</dt><dd><%= account.xui_expires_at ? formatClientDate(account.xui_expires_at) : 'Sin caducidad' %><%= account.xui_cut ? ' · cortada' : '' %></dd></div>
       <div><dt>Paquete</dt><dd><%= account.xui_package_name || account.xui_package_id || '—' %></dd></div>
       <div><dt>Conexiones</dt><dd><%= account.plan_screens || '—' %></dd></div>
     <% } %>
