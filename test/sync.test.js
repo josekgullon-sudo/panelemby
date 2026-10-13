@@ -246,3 +246,23 @@ test('una línea sin exp_date se importa sin caducidad', async () => {
   assert.equal(off.status, 'expired');
   assert.equal(off.xui_cut, 1);
 });
+
+test('is_trial llega como texto "1" o "0" y se guarda así', async () => {
+  const result = await syncXuiLines({
+    xui: {
+      getLines: async () => [
+        { id: '90', username: 'texto.prueba', password: 'abc', exp_date: null, member_id: '', enabled: true, package_id: '', is_trial: '1' },
+        { id: '91', username: 'texto.normal', password: 'abc', exp_date: '2027-01-01 00:00', member_id: '', enabled: true, package_id: '', is_trial: '0' },
+      ],
+      parseExpToDate: (value) => (value ? new Date('2027-01-01T00:00:00Z') : null),
+    },
+    maxplayer: { listAllUsers: async () => [] },
+  });
+  assert.equal(result.errors.length, 0);
+  const trial = db.prepare("SELECT * FROM emby_accounts WHERE username = 'texto.prueba'").get();
+  assert.equal(trial.is_trial, 1);
+  assert.equal(trial.xui_expires_at, null);
+  const plain = db.prepare("SELECT * FROM emby_accounts WHERE username = 'texto.normal'").get();
+  assert.equal(plain.is_trial, 0);
+  assert.equal(plain.expires_at, '2027-01-01 00:00:00');
+});

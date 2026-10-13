@@ -80,6 +80,13 @@ function writtenStatus(row, timing) {
   return timing.past && !embyAlive ? 'expired' : 'active';
 }
 
+function trialBit(line) {
+  const value = line && line.is_trial;
+  if (value === true || value === 1) return 1;
+  if (typeof value === 'string' && /^(1|true|yes|on)$/i.test(value.trim())) return 1;
+  return 0;
+}
+
 function when(line, parseExpToDate) {
   // Sin exp_date la línea es ilimitada. No se inventa una caducidad de 30 días.
   let date = null;
@@ -240,7 +247,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           player && player.domainId ? player.domainId : null,
           timing.expiresAt,
           timing.past ? 1 : 0,
-          line.is_trial ? 1 : 0
+          trialBit(line)
         );
       } else if (!dryRun) {
         const packageId = row.xui_package_id || line.package_id || null;
@@ -268,7 +275,7 @@ async function syncXuiLines({ dryRun = false, xui, maxplayer, onProgress } = {})
           packageId,
           timing.past ? 1 : 0,
           owner.id,
-          line.is_trial ? 1 : 0,
+          trialBit(line),
           line.password ? secret.encrypt(line.password) : null,
           row.id
         );
