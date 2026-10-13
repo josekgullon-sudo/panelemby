@@ -220,3 +220,29 @@ test('la sincronización del admin arranca en segundo plano y publica el avance'
   assert.match(route, /startSyncInBackground/);
   assert.doesNotMatch(route, /await syncXuiLines/);
 });
+
+test('una línea sin exp_date se importa sin caducidad', async () => {
+  const { parseExpToDate } = require('../src/services/xui');
+  const result = await syncXuiLines({
+    xui: {
+      getLines: async () => [
+        { id: '77', username: 'ilimitada', password: 'abc', exp_date: null, member_id: '', enabled: true, package_id: '' },
+        { id: '78', username: 'apagada', password: 'abc', exp_date: '', member_id: '', enabled: false, package_id: '' },
+      ],
+      parseExpToDate,
+    },
+    maxplayer: { listAllUsers: async () => [] },
+  });
+  assert.equal(result.errors.length, 0);
+  const open = db.prepare("SELECT * FROM emby_accounts WHERE username = 'ilimitada'").get();
+  assert.equal(open.expires_at, null);
+  assert.equal(open.xui_expires_at, null);
+  assert.equal(open.status, 'active');
+  assert.equal(open.xui_cut, 0);
+  assert.equal(open.notes, 'importado de XUI');
+  const off = db.prepare("SELECT * FROM emby_accounts WHERE username = 'apagada'").get();
+  assert.equal(off.expires_at, null);
+  assert.equal(off.xui_expires_at, null);
+  assert.equal(off.status, 'expired');
+  assert.equal(off.xui_cut, 1);
+});

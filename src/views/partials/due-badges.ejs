@@ -1,7 +1,13 @@
 <span class="svc-badges">
   <% dueServices(account).forEach(function (name) { %>
-    <span class="badge <%= name === 'XUI' ? 'svc-xui' : 'svc-emby' %>"><%= name %></span>
+    <% if (name === 'XUI') { %>
+      <span class="svc-with-sub">
+        <span class="badge svc-xui">XUI</span>
+        <span class="svc-sub"><%= (account.player_kind === 'maxplayer' || account.maxplayer_user_id) ? 'Max Player' : 'TotalFlix' %></span>
+      </span>
+    <% } else { %>
+      <span class="badge svc-emby">Emby</span>
+    <% } %>
   <% }) %>
-  <% if (account.is_trial) { %><span class="badge badge-warn">prueba</span>
-  <% } else { %><span class="badge badge-muted">normal</span><% } %>
+  <% if (account.is_trial) { %><span class="badge badge-warn">Prueba</span><% } %>
 </span>

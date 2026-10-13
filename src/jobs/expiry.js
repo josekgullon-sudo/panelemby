@@ -22,7 +22,8 @@ async function run() {
   let deleted = 0;
   let errors = 0;
 
-  // 1) Cada servicio caduca por su fecha. No se toca el otro.
+  // 1) Cada servicio caduca por su fecha. Una cuenta sin fecha (línea XUI
+  // ilimitada, expires_at y xui_expires_at a NULL) no entra en esta pasada.
   const due = db
     .prepare(
       `SELECT * FROM emby_accounts WHERE status != 'deleted' AND (
@@ -34,11 +35,14 @@ async function run() {
   for (const account of due) {
     try {
       const now = utcNowSql();
-      if (account.emby_user_id && !account.emby_cut && account.emby_expires_at && account.emby_expires_at <= now) {
+      const embyDue = account.emby_user_id && !account.emby_cut && account.emby_expires_at && account.emby_expires_at <= now;
+      const xuiDue = account.xui_line_id && !account.xui_cut && account.xui_expires_at && account.xui_expires_at <= now;
+      if (!embyDue && !xuiDue) continue;
+      if (embyDue) {
         await expireRemotes(Object.assign({}, account, { xui_line_id: null, maxplayer_user_id: null }));
         db.prepare('UPDATE emby_accounts SET emby_cut = 1 WHERE id = ?').run(account.id);
       }
-      if (account.xui_line_id && !account.xui_cut && account.xui_expires_at && account.xui_expires_at <= now) {
+      if (xuiDue) {
         await expireRemotes(Object.assign({}, account, { emby_user_id: null }));
         db.prepare('UPDATE emby_accounts SET xui_cut = 1 WHERE id = ?').run(account.id);
       }

@@ -11,11 +11,11 @@
       <div><dt>Reseller</dt><dd><%= a.owner %></dd></div>
     <% } %>
     <div><dt>Plan</dt><dd><%= a.plan || '—' %></dd></div>
-    <div><dt>Vence</dt><dd><%= a.expires_at.slice(0, 10) %></dd></div>
+    <div><dt>Vence</dt><dd><% if (a.expires_at) { %><%= a.expires_at.slice(0, 10) %><% } else { %>Sin caducidad<% } %></dd></div>
     <div class="account-meta-time">
       <dt>Tiempo restante</dt>
       <dd>
-        <% if (a.status === 'active') { %>
+        <% if (a.status === 'active' && a.expires_at) { %>
           <%- include('./meter', { days: d, duration: a.duration_days }) %>
           <span class="meter-days"><%= d < 0 ? 'hace ' + (-d) + ' d' : d === 0 ? 'hoy' : d + ' d' %></span>
         <% } else { %><span class="td-dim">—</span><% } %>

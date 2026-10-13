@@ -52,6 +52,7 @@ function parseSqlDate(text) {
 }
 
 function daysLeft(expiresAt) {
+  if (!expiresAt) return null;
   const ms = parseSqlDate(expiresAt).getTime() - Date.now();
   return Math.ceil(ms / (24 * 3600 * 1000));
 }
@@ -1260,9 +1261,12 @@ function listAccounts(query, { ownerId = null, base = '/admin/cuentas' } = {}) {
   const offset = (page - 1) * pageSize;
   const sqlDir = dir === 'desc' ? 'DESC' : 'ASC';
   // Sin orden explícito, las caducadas (fecha más vieja) no ocupan la primera página.
+  const nullsLast = 'CASE WHEN a.expires_at IS NULL THEN 1 ELSE 0 END';
   const orderBy = sort === 'activas'
-    ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, a.expires_at ASC, a.id ASC`
-    : `${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}`;
+    ? `CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, ${nullsLast}, a.expires_at ASC, a.id ASC`
+    : sort === 'vence'
+      ? `${nullsLast}, a.expires_at ${sqlDir}, a.id ${sqlDir}`
+      : `${SORTS[sort]} ${sqlDir}, a.id ${sqlDir}`;
   const list = db.prepare(
     `SELECT a.*, p.username AS owner, pl.name AS plan, pl.duration_days
      ${from}

@@ -11,6 +11,7 @@
     "expiry": "node scripts/run-expiry.js",
     "import-emby": "node scripts/import-emby.js",
     "import-xui": "node scripts/import-xui.js",
+    "auditar-ilimitadas": "node scripts/auditar-ilimitadas-xui.js",
     "sync-bibliotecas": "node scripts/sync-libraries.js",
     "test": "node --test test/*.test.js",
     "test-emby": "node scripts/test-emby.js",
