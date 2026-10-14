@@ -488,11 +488,52 @@ function lineRow(raw) {
   return row;
 }
 
-function editScalar(value) {
-  if (value === undefined || value === null) return undefined;
-  if (Array.isArray(value)) return JSON.stringify(value);
-  if (typeof value === 'object') return undefined;
-  return value;
+// allowed_ips / allowed_ua. El texto '[]' no es una lista vacía: XUI lo guarda
+// como ['[]'] y esa whitelist no deja entrar a ningún dispositivo.
+// Con valores se repite la clave (allowed_ips[]=1.2.3.4), igual que access_output[].
+// Vacío se omite: edit_line reescribe la línea y así no queda restricción.
+function accessEntries(value) {
+  if (value == null || value === '') return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (item == null ? '' : String(item).trim()))
+      .filter((item) => item !== '');
+  }
+  if (typeof value !== 'string') return [];
+  const text = value.trim();
+  if (!text || text === 'null' || text === '[]') return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return accessEntries(parsed);
+  } catch {
+    /* lista separada por comas */
+  }
+  return text.split(/[,\n]+/).map((part) => part.trim()).filter(Boolean);
+}
+
+function cleanAccess(value) {
+  return accessEntries(value).filter((item) => item !== '[]');
+}
+
+function hasBogusAccess(value) {
+  return accessEntries(value).some((item) => item === '[]');
+}
+
+function sameAccess(sent, got) {
+  const left = cleanAccess(sent).slice().sort();
+  const right = cleanAccess(got).slice().sort();
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function assignAccess(params, ips, ua) {
+  delete params.allowed_ips;
+  delete params.allowed_ua;
+  delete params['allowed_ips[]'];
+  delete params['allowed_ua[]'];
+  const ipList = cleanAccess(ips);
+  const uaList = cleanAccess(ua);
+  if (ipList.length) params['allowed_ips[]'] = ipList;
+  if (uaList.length) params['allowed_ua[]'] = uaList;
 }
 
 function emptyBouquetList(value) {
@@ -542,10 +583,7 @@ function lineToEditParams(row) {
   if (bouquets.length) params.bouquets_selected = JSON.stringify(bouquets);
   // Un is_trial presente, aunque sea 0, deja la línea en prueba. En una de pago no se manda.
   if (trialFlag(row.is_trial)) params.is_trial = 1;
-  const ips = editScalar(row.allowed_ips);
-  const ua = editScalar(row.allowed_ua);
-  if (ips != null && ips !== '') params.allowed_ips = ips;
-  if (ua != null && ua !== '') params.allowed_ua = ua;
+  assignAccess(params, row.allowed_ips, row.allowed_ua);
   if (notes != null && String(notes).trim() !== '') params.notes = notes;
   if (row.admin_notes != null && String(row.admin_notes).trim() !== '') params.admin_notes = row.admin_notes;
   if (row.reseller_notes != null && String(row.reseller_notes).trim() !== '') {
@@ -579,19 +617,37 @@ async function editLine(id, fields) {
       else delete params.is_trial;
       continue;
     }
+    if (key === 'allowed_ips' || key === 'allowed_ips[]') {
+      assignAccess(params, value, params['allowed_ua[]']);
+      continue;
+    }
+    if (key === 'allowed_ua' || key === 'allowed_ua[]') {
+      assignAccess(params, params['allowed_ips[]'], value);
+      continue;
+    }
     params[key] = value;
   }
   params.id = String(id);
   applyExpDate(params);
   const sentUser = String(params.username || '').trim();
   const sentBouquets = params.bouquets_selected;
+  const sentIps = params['allowed_ips[]'] || [];
+  const sentUa = params['allowed_ua[]'] || [];
   const result = await request('edit_line', params);
   const after = await readLineForEdit(id, 'después de editarla');
   const gotUser = String(after && after.username || '').trim();
   const gotBouquets = after && (after.bouquets_selected ?? after.bouquet ?? after.bouquets);
-  if (gotUser !== sentUser || !sameBouquetIds(sentBouquets, gotBouquets)) {
+  const gotIps = after && after.allowed_ips;
+  const gotUa = after && after.allowed_ua;
+  if (hasBogusAccess(gotIps) || hasBogusAccess(gotUa)) {
     throw new XuiError(
-      `La edición de la línea ${id} no conservó el usuario o los bouquets (quedó «${gotUser || 'sin usuario'}», bouquets ${JSON.stringify(bouquetIds(gotBouquets))})`
+      `La edición de la línea ${id} dejó allowed_ips o allowed_ua con una lista que bloquea los dispositivos (allowed_ips ${JSON.stringify(gotIps)}, allowed_ua ${JSON.stringify(gotUa)})`
+    );
+  }
+  if (gotUser !== sentUser || !sameBouquetIds(sentBouquets, gotBouquets)
+    || !sameAccess(sentIps, gotIps) || !sameAccess(sentUa, gotUa)) {
+    throw new XuiError(
+      `La edición de la línea ${id} no conservó el usuario, los bouquets o las listas de acceso (quedó «${gotUser || 'sin usuario'}», bouquets ${JSON.stringify(bouquetIds(gotBouquets))}, allowed_ips ${JSON.stringify(cleanAccess(gotIps))}, allowed_ua ${JSON.stringify(cleanAccess(gotUa))})`
     );
   }
   return result;

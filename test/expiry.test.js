@@ -40,6 +40,25 @@ db.prepare(
      has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
    ) VALUES ('libre', ?, ?, ?, NULL, 'active', 0, 'line-libre', 'totalflix', NULL, 0, 0)`
 ).run(hash, owner.id, plan.id);
+db.prepare(
+  `INSERT INTO emby_accounts (
+     username, password_hash, owner_id, plan_id, expires_at, status,
+     has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+   ) VALUES ('renovada', ?, ?, ?, ?, 'active', 0, 'line-renovada', 'totalflix', ?, 0, 0)`
+).run(hash, owner.id, plan.id, sqlDays(-2), sqlDays(-2));
+db.prepare(
+  `INSERT INTO emby_accounts (
+     username, password_hash, owner_id, plan_id, expires_at, status,
+     has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+   ) VALUES ('ilimitada', ?, ?, ?, ?, 'active', 0, 'line-ilimitada', 'totalflix', ?, 0, 0)`
+).run(hash, owner.id, plan.id, sqlDays(-2), sqlDays(-2));
+const ciegaAt = sqlDays(-2);
+db.prepare(
+  `INSERT INTO emby_accounts (
+     username, password_hash, owner_id, plan_id, expires_at, status,
+     has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+   ) VALUES ('ciega', ?, ?, ?, ?, 'active', 0, 'line-ciega', 'totalflix', ?, 0, 0)`
+).run(hash, owner.id, plan.id, ciegaAt, ciegaAt);
 
 const calls = [];
 accounts.setIntegrations({
@@ -48,6 +67,13 @@ accounts.setIntegrations({
     deleteUser: async (id) => calls.push(['emby.del', id]),
   },
   xui: {
+    getLine: async (id) => {
+      calls.push(['xui.get', id]);
+      if (id === 'line-renovada') return { exp_date: '2099-06-01 12:00', username: 'renovada' };
+      if (id === 'line-ilimitada') return { exp_date: null, username: 'ilimitada' };
+      if (id === 'line-ciega') throw new Error('timeout');
+      return { exp_date: '2020-01-01 00:00', username: id };
+    },
     disableLine: async (id) => calls.push(['xui.off', id]),
     deleteLine: async (id) => calls.push(['xui.del', id]),
   },
@@ -89,4 +115,29 @@ test('cada servicio caduca solo y el borrado espera a la fecha más tardía', as
   assert.equal(libre.xui_expires_at, null);
   assert.equal(libre.xui_cut, 0);
   assert.equal(calls.some((c) => c[1] === 'line-libre'), false);
+
+  const renovada = db.prepare("SELECT * FROM emby_accounts WHERE username = 'renovada'").get();
+  const expected = accounts.toSqlDate(require('../src/services/xui').parseExpToDate('2099-06-01 12:00'));
+  assert.equal(renovada.status, 'active');
+  assert.equal(renovada.xui_cut, 0);
+  assert.equal(renovada.xui_expires_at, expected);
+  assert.equal(renovada.expires_at, expected);
+  assert.equal(calls.some((c) => c[0] === 'xui.off' && c[1] === 'line-renovada'), false);
+  assert.equal(calls.some((c) => c[0] === 'xui.get' && c[1] === 'line-renovada'), true);
+  assert.equal(calls.some((c) => c[0] === 'xui.get' && c[1] === 'line-mixta'), false);
+  assert.equal(calls.some((c) => c[0] === 'xui.off' && c[1] === 'line-reciente'), true);
+
+  const ilimitada = db.prepare("SELECT * FROM emby_accounts WHERE username = 'ilimitada'").get();
+  assert.equal(ilimitada.status, 'active');
+  assert.equal(ilimitada.xui_cut, 0);
+  assert.equal(ilimitada.xui_expires_at, null);
+  assert.equal(ilimitada.expires_at, null);
+  assert.equal(calls.some((c) => c[0] === 'xui.off' && c[1] === 'line-ilimitada'), false);
+
+  const ciega = db.prepare("SELECT * FROM emby_accounts WHERE username = 'ciega'").get();
+  assert.equal(ciega.status, 'active');
+  assert.equal(ciega.xui_cut, 0);
+  assert.equal(ciega.xui_expires_at, ciegaAt);
+  assert.equal(ciega.expires_at, ciegaAt);
+  assert.equal(calls.some((c) => c[0] === 'xui.off' && c[1] === 'line-ciega'), false);
 });

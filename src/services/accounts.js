@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const secret = require('./secret');
-const { formatExpDate } = require('./xui');
+const { formatExpDate, parseExpToDate } = require('./xui');
 
 const integrations = { emby: null, xui: null, maxplayer: null };
 
@@ -1424,6 +1424,50 @@ async function deleteAccount({ accountId, actor }) {
   await deleteEverywhere(account);
 }
 
+// La caducidad del panel puede ir por detrás de XUI. Si get_line trae una
+// exp_date futura (renovada allí) o vacía (ilimitada), se guarda esa fecha
+// y no se desactiva la línea. Una fecha pasada sí se corta.
+function expiryAfterXuiSync(account, xuiSql) {
+  const dates = [];
+  if ((account.emby_user_id || account.has_emby) && account.emby_expires_at) dates.push(account.emby_expires_at);
+  if (xuiSql) dates.push(xuiSql);
+  if (!dates.length) return null;
+  const nowSql = toSqlDate(new Date());
+  const future = dates.filter((value) => value > nowSql);
+  const pool = future.length ? future : dates;
+  return pool.slice().sort()[future.length ? 0 : pool.length - 1];
+}
+
+async function adoptRemoteXuiExpiry(account) {
+  if (!account || !account.xui_line_id) return false;
+  let raw;
+  try {
+    raw = await X().getLine(account.xui_line_id);
+  } catch (err) {
+    throw new Error(`XUI: no se pudo leer la línea ${account.xui_line_id} antes de caducarla (${err.message})`);
+  }
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== 'object') {
+    throw new Error(`XUI: get_line no devolvió la línea ${account.xui_line_id}`);
+  }
+  const hasExp = Object.prototype.hasOwnProperty.call(row, 'exp_date')
+    || Object.prototype.hasOwnProperty.call(row, 'expdate');
+  if (!hasExp) {
+    throw new Error(`XUI: la línea ${account.xui_line_id} no trae exp_date`);
+  }
+  const exp = row.exp_date != null ? row.exp_date : row.expdate;
+  const date = parseExpToDate(exp);
+  const future = !!(date && date.getTime() > Date.now());
+  if (date && !future) return false;
+  const xuiSql = future ? toSqlDate(date) : null;
+  db.prepare(
+    `UPDATE emby_accounts
+     SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active'
+     WHERE id = ?`
+  ).run(xuiSql, expiryAfterXuiSync(account, xuiSql), account.id);
+  return true;
+}
+
 // Caducidad. Max Player no tiene un "desactivar": se corta la línea XUI
 // (la playlist deja de reproducir) y, si se puede, se cierran sus dispositivos.
 async function expireRemotes(account) {
@@ -1981,6 +2025,7 @@ module.exports = {
   expiredPolicyPatch,
   restoredPolicyPatch,
   expireRemotes,
+  adoptRemoteXuiExpiry,
   restoreRemotes,
   extendService,
   addService,

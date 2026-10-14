@@ -191,8 +191,10 @@ test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', as
   assert.equal(edit.get('member_id'), '3');
   assert.equal(edit.get('allowed_outputs'), null);
   assert.deepEqual(edit.getAll('access_output[]'), ['1', '2', '3']);
-  assert.equal(edit.get('allowed_ips'), '["1.2.3.4"]');
-  assert.equal(edit.get('allowed_ua'), '[]');
+  assert.deepEqual(edit.getAll('allowed_ips[]'), ['1.2.3.4']);
+  assert.equal(edit.get('allowed_ips'), null);
+  assert.equal(edit.get('allowed_ua'), null);
+  assert.deepEqual(edit.getAll('allowed_ua[]'), []);
   assert.equal(edit.get('notes'), 'nota interna');
   assert.equal(edit.get('admin_notes'), 'nota interna');
   assert.equal(edit.get('reseller_notes'), 'nota reseller');
@@ -269,6 +271,82 @@ test('is_trial solo se envía cuando la línea es prueba', async () => {
   assert.equal(seen.at(-2).searchParams.get('is_trial'), '1');
 });
 
+test('allowed_ips y allowed_ua vacíos no se mandan como texto []', async () => {
+  const line = {
+    id: 7,
+    username: 'ana',
+    password: 'secret',
+    exp_date: '2026-05-01 10:00',
+    bouquet: '[10]',
+    max_connections: '1',
+    is_trial: 0,
+    enabled: '1',
+    admin_enabled: '1',
+    member_id: '3',
+    allowed_outputs: '[1,2,3]',
+    allowed_ips: [],
+    allowed_ua: '[]',
+  };
+  let after = null;
+  const seen = [];
+  xui.setTransport(async (url) => {
+    seen.push(url);
+    if (url.searchParams.get('action') === 'get_line') {
+      const data = seen.filter((item) => item.searchParams.get('action') === 'get_line').length > 1
+        ? (after || line)
+        : line;
+      return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data }) };
+    }
+    return { status: 200, body: JSON.stringify({ status: 'STATUS_SUCCESS', data: { id: '7' } }) };
+  });
+
+  await xui.editLine('7', { exp_date: '2026-06-01 12:00' });
+  const edit = seen[1].searchParams;
+  assert.equal(edit.get('is_trial'), null);
+  assert.equal(edit.get('allowed_ips'), null);
+  assert.equal(edit.get('allowed_ua'), null);
+  assert.deepEqual(edit.getAll('allowed_ips[]'), []);
+  assert.deepEqual(edit.getAll('allowed_ua[]'), []);
+
+  line.is_trial = '0';
+  line.allowed_ips = '[]';
+  line.allowed_ua = null;
+  seen.length = 0;
+  await xui.editLine('7', { allowed_ips: '[]', allowed_ua: [] });
+  assert.equal(seen[1].searchParams.get('is_trial'), null);
+  assert.equal(seen[1].searchParams.get('allowed_ips'), null);
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ips[]'), []);
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ua[]'), []);
+
+  line.allowed_ips = ['[]'];
+  line.allowed_ua = '["[]"]';
+  after = { ...line, allowed_ips: [], allowed_ua: [] };
+  seen.length = 0;
+  await xui.editLine('7', {});
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ips[]'), []);
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ua[]'), []);
+  assert.equal(seen[1].searchParams.get('allowed_ips'), null);
+
+  line.allowed_ips = ['1.2.3.4', '8.8.8.8'];
+  line.allowed_ua = '["VLC","TiviMate"]';
+  after = null;
+  seen.length = 0;
+  await xui.editLine('7', {});
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ips[]'), ['1.2.3.4', '8.8.8.8']);
+  assert.deepEqual(seen[1].searchParams.getAll('allowed_ua[]'), ['VLC', 'TiviMate']);
+  assert.match(seen[1].search, /allowed_ips%5B%5D=/);
+  assert.equal(seen[1].searchParams.get('allowed_ips'), null);
+
+  line.allowed_ips = ['1.2.3.4'];
+  line.allowed_ua = [];
+  after = { ...line, allowed_ips: ['[]'], allowed_ua: '[]' };
+  seen.length = 0;
+  await assert.rejects(
+    () => xui.editLine('7', { exp_date: '2026-07-01 00:00' }),
+    /bloquea los dispositivos/
+  );
+});
+
 test('edit_line falla si después el usuario o los bouquets no coinciden', async () => {
   const line = {
     id: 7,
@@ -297,7 +375,7 @@ test('edit_line falla si después el usuario o los bouquets no coinciden', async
   });
   await assert.rejects(
     () => xui.editLine('7', { exp_date: '2026-08-01 00:00' }),
-    /no conservó el usuario o los bouquets/
+    /no conservó el usuario, los bouquets/
   );
   assert.deepEqual(seen, ['get_line', 'edit_line', 'get_line']);
 });

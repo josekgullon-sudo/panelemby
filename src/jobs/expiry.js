@@ -9,7 +9,7 @@
 const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
-const { deleteEverywhere, expireRemotes, restoreRemotes, clockFrom } = require('../services/accounts');
+const { deleteEverywhere, expireRemotes, restoreRemotes, clockFrom, adoptRemoteXuiExpiry } = require('../services/accounts');
 
 function utcNowSql() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -18,6 +18,7 @@ function utcNowSql() {
 async function run() {
   const started = Date.now();
   let disabled = 0;
+  let synced = 0;
   let reenabled = 0;
   let deleted = 0;
   let errors = 0;
@@ -36,13 +37,20 @@ async function run() {
     try {
       const now = utcNowSql();
       const embyDue = account.emby_user_id && !account.emby_cut && account.emby_expires_at && account.emby_expires_at <= now;
-      const xuiDue = account.xui_line_id && !account.xui_cut && account.xui_expires_at && account.xui_expires_at <= now;
+      let xuiDue = account.xui_line_id && !account.xui_cut && account.xui_expires_at && account.xui_expires_at <= now;
       if (!embyDue && !xuiDue) continue;
+      if (xuiDue && await adoptRemoteXuiExpiry(account)) {
+        synced += 1;
+        xuiDue = false;
+      }
+      let cut = false;
       if (embyDue) {
+        cut = true;
         await expireRemotes(Object.assign({}, account, { xui_line_id: null, maxplayer_user_id: null }));
         db.prepare('UPDATE emby_accounts SET emby_cut = 1 WHERE id = ?').run(account.id);
       }
       if (xuiDue) {
+        cut = true;
         await expireRemotes(Object.assign({}, account, { emby_user_id: null }));
         db.prepare('UPDATE emby_accounts SET xui_cut = 1 WHERE id = ?').run(account.id);
       }
@@ -57,7 +65,7 @@ async function run() {
            THEN 'expired' ELSE status END
          WHERE id = ?`
       ).run(clock || null, account.id);
-      disabled++;
+      if (cut) disabled++;
     } catch (err) {
       errors++;
       console.error(`[expiry] No se pudo desactivar ${account.username}: ${err.message}`);
@@ -124,9 +132,9 @@ async function run() {
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
-    `[expiry] Completado en ${secs}s: ${disabled} desactivadas, ${reenabled} reactivadas, ${deleted} borradas, ${errors} errores`
+    `[expiry] Completado en ${secs}s: ${disabled} desactivadas, ${synced} actualizadas desde XUI, ${reenabled} reactivadas, ${deleted} borradas, ${errors} errores`
   );
-  return { disabled, reenabled, deleted, errors };
+  return { disabled, reenabled, deleted, errors, synced };
 }
 
 function schedule() {
