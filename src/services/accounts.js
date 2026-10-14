@@ -215,20 +215,64 @@ function xuiCredit(plan, packageRow) {
   return plan.xui_credit_cost || 0;
 }
 
-// En XUI la duración del paquete viene en horas (720 = 30 días, 6 = la demo).
-function packageHours(pack) {
-  if (!pack) return 0;
+// get_packages trae el número Y la unidad (Hours, Days, Months, Years).
+// Leer el 1 de «1 MES» como horas dejaba la línea a una hora de crearse.
+// Sin unidad, un 720 o un 6 siguen siendo horas. Si el nombre dice «1 MES»
+// y el número en horas no llega a la mitad de eso, manda el nombre.
+function durationUnit(raw) {
+  const text = String(raw || '').trim().toLowerCase();
+  if (!text) return '';
+  if (/^h(our|ours|ora|oras)?$/.test(text)) return 'hours';
+  if (/^d(ay|ays|ia|ias|ía|ías)?$/.test(text)) return 'days';
+  if (/^(month|months|mes|meses)$/.test(text)) return 'months';
+  if (/^(year|years|ano|anos|año|años)$/.test(text)) return 'years';
+  return '';
+}
+
+function daysFromAmount(amount, unit) {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (unit === 'hours') return n / 24;
+  if (unit === 'days') return n;
+  if (unit === 'months') return n * 30;
+  if (unit === 'years') return n * 365;
+  return null;
+}
+
+function daysFromPackageName(name) {
+  const text = String(name || '');
+  const hour = /(\d+(?:[.,]\d+)?)\s*horas?/i.exec(text);
+  if (hour) return Number(hour[1].replace(',', '.')) / 24;
+  const day = /(\d+(?:[.,]\d+)?)\s*d[ií]as?/i.exec(text);
+  if (day) return Number(day[1].replace(',', '.'));
+  const month = /(\d+)\s*mes(?:es)?/i.exec(text);
+  if (month) return Number(month[1]) * 30;
+  const year = /(\d+)\s*a[nñ]os?/i.exec(text);
+  if (year) return Number(year[1]) * 365;
+  return null;
+}
+
+function chosenPackageDuration(pack) {
   const official = Number(pack.official_duration);
   const trial = Number(pack.trial_duration);
-  const officialHours = Number.isFinite(official) && official > 0 ? official : 0;
-  const trialHours = Number.isFinite(trial) && trial > 0 ? trial : 0;
-  if (pack.is_trial) return trialHours || officialHours;
-  return officialHours || trialHours;
+  const officialOk = Number.isFinite(official) && official > 0;
+  const trialOk = Number.isFinite(trial) && trial > 0;
+  if (pack.is_trial && trialOk) return { amount: trial, unit: pack.trial_duration_in };
+  if (officialOk) return { amount: official, unit: pack.official_duration_in };
+  if (trialOk) return { amount: trial, unit: pack.trial_duration_in };
+  return { amount: 0, unit: '' };
 }
 
 function packageDurationDays(pack) {
-  const hours = packageHours(pack);
-  return hours > 0 ? hours / 24 : null;
+  if (!pack) return null;
+  const picked = chosenPackageDuration(pack);
+  const unit = durationUnit(picked.unit);
+  const fromUnit = unit ? daysFromAmount(picked.amount, unit) : null;
+  if (fromUnit != null) return fromUnit;
+  const named = daysFromPackageName(pack.package_name);
+  const asHours = picked.amount > 0 ? picked.amount / 24 : null;
+  if (named != null && (asHours == null || asHours * 2 < named)) return named;
+  return asHours;
 }
 
 function planMatchingDays(days, connections) {
@@ -325,14 +369,17 @@ async function refreshXuiPackages() {
   const upsert = db.prepare(
     `INSERT INTO xui_packages (
        id, package_name, is_trial, is_official, trial_duration, official_duration,
+       trial_duration_in, official_duration_in,
        max_connections, bouquets, is_listed, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        package_name = excluded.package_name,
        is_trial = excluded.is_trial,
        is_official = excluded.is_official,
        trial_duration = excluded.trial_duration,
        official_duration = excluded.official_duration,
+       trial_duration_in = excluded.trial_duration_in,
+       official_duration_in = excluded.official_duration_in,
        max_connections = excluded.max_connections,
        bouquets = excluded.bouquets,
        is_listed = 1,
@@ -348,6 +395,8 @@ async function refreshXuiPackages() {
         pack.is_official ? 1 : 0,
         pack.trial_duration,
         pack.official_duration,
+        pack.trial_duration_in || '',
+        pack.official_duration_in || '',
         pack.max_connections,
         JSON.stringify(pack.bouquets || [])
       );

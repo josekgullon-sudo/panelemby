@@ -48,6 +48,8 @@ ensureColumn('emby_accounts', 'provision_error', 'ALTER TABLE emby_accounts ADD 
 ensureColumn('emby_accounts', 'maxplayer_domain_id', 'ALTER TABLE emby_accounts ADD COLUMN maxplayer_domain_id TEXT');
 ensureColumn('emby_accounts', 'emby_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN emby_expires_at TEXT');
 ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN xui_expires_at TEXT');
+ensureColumn('xui_packages', 'trial_duration_in', 'ALTER TABLE xui_packages ADD COLUMN trial_duration_in TEXT');
+ensureColumn('xui_packages', 'official_duration_in', 'ALTER TABLE xui_packages ADD COLUMN official_duration_in TEXT');
 ensureColumn('emby_accounts', 'emby_cut', 'ALTER TABLE emby_accounts ADD COLUMN emby_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN xui_cut INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');

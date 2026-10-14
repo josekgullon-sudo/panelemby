@@ -276,7 +276,9 @@ function normalizePackage(raw) {
     is_trial: truthy(raw.is_trial),
     is_official: truthy(raw.is_official),
     trial_duration: asInt(raw.trial_duration),
+    trial_duration_in: raw.trial_duration_in == null ? '' : String(raw.trial_duration_in).trim(),
     official_duration: asInt(raw.official_duration),
+    official_duration_in: raw.official_duration_in == null ? '' : String(raw.official_duration_in).trim(),
     max_connections: asInt(raw.max_connections),
     bouquets,
   };

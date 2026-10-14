@@ -229,6 +229,68 @@ test('la duración de XUI es la del paquete aunque el plan de Emby sea otro', as
   assert.equal(call[3], 1);
 });
 
+test('cada paquete caduca según su unidad, no leyendo meses como horas', () => {
+  const catalog = [
+    { id: '2', package_name: '1 MES- 1 CONEXION', is_trial: 0, official_duration: 1, official_duration_in: 'Months', max_connections: 1, days: 30 },
+    { id: '2-sin-unidad', package_name: '1 MES- 1 CONEXION', is_trial: 0, official_duration: 1, official_duration_in: '', days: 30 },
+    { id: 'demo', package_name: 'Demo 6 horas', is_trial: 1, trial_duration: 6, trial_duration_in: 'Hours', official_duration: 0, days: 0.25 },
+    { id: 'demo-horas', package_name: 'Demo 6 horas', is_trial: 1, trial_duration: 6, official_duration: 0, days: 0.25 },
+    { id: 'ano', package_name: '1 AÑO- 1 CONEXION', is_trial: 0, official_duration: 1, official_duration_in: 'Years', days: 365 },
+    { id: 'ano-horas', package_name: '1 AÑO- 1 CONEXION', is_trial: 0, official_duration: 8760, days: 365 },
+    { id: '3m', package_name: '3 MESES- 1 CONEXION', is_trial: 0, official_duration: 3, official_duration_in: 'Months', days: 90 },
+    { id: '6m', package_name: '6 MESES- 2 CONEXION', is_trial: 0, official_duration: 6, official_duration_in: 'months', days: 180 },
+    { id: '12m', package_name: '12 MESES- 1 CONEXION', is_trial: 0, official_duration: 12, official_duration_in: 'Months', days: 360 },
+    { id: '7d', package_name: '7 DIAS- 1 CONEXION', is_trial: 0, official_duration: 7, official_duration_in: 'Days', days: 7 },
+    { id: '24h', package_name: '24 HORAS', is_trial: 0, official_duration: 24, official_duration_in: 'Hours', days: 1 },
+    { id: '720', package_name: 'Full', is_trial: 0, official_duration: 720, days: 30 },
+    { id: 'pago', package_name: '1 MES- 1 CONEXION', is_trial: 0, trial_duration: 1, trial_duration_in: 'Hours', official_duration: 1, official_duration_in: 'Months', days: 30 },
+    { id: 'abierto', package_name: 'Sin duración', is_trial: 0, official_duration: null, days: null },
+  ];
+  for (const pack of catalog) {
+    assert.equal(accounts.packageDurationDays(pack), pack.days, pack.id);
+  }
+});
+
+test('el alta de pago de 1 MES guarda en el panel la misma caducidad que manda a XUI', async () => {
+  const { formatExpDate, parseExpToDate } = require('../src/services/xui');
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  db.prepare(
+    `INSERT INTO xui_packages (
+       id, package_name, is_trial, is_official, trial_duration, official_duration,
+       trial_duration_in, official_duration_in, max_connections, is_listed
+     ) VALUES ('2', '1 MES- 1 CONEXION', 0, 1, 0, 1, 'Hours', 'Months', 1, 1)`
+  ).run();
+  const mensual = db.prepare("SELECT * FROM plans WHERE name = 'Mensual · 1 pantalla'").get();
+  const calls = install({
+    xui: {
+      createLine: async (body) => {
+        calls.push(['xui.create', body.expDate, body.packageId, body.isTrial]);
+        return { id: 'line-mes' };
+      },
+    },
+  });
+  const created = await accounts.createAccount({
+    username: 'mes.xui',
+    password: 'clave',
+    planId: mensual.id,
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: '2' },
+  });
+  const row = db.prepare('SELECT xui_expires_at, expires_at, has_emby, player_kind FROM emby_accounts WHERE id = ?').get(created.id);
+  const call = calls.find((item) => item[0] === 'xui.create');
+  assert.equal(call[1], row.xui_expires_at);
+  assert.equal(call[2], '2');
+  assert.equal(call[3], false);
+  assert.equal(row.expires_at, row.xui_expires_at);
+  assert.equal(row.has_emby, 0);
+  assert.equal(row.player_kind, 'totalflix');
+  const days = (accounts.parseSqlDate(row.xui_expires_at).getTime() - Date.now()) / 86400000;
+  assert.ok(days > 29 && days < 31, String(days));
+  const madrid = formatExpDate(row.xui_expires_at);
+  const back = parseExpToDate(madrid).getTime();
+  assert.ok(Math.abs(back - accounts.parseSqlDate(row.xui_expires_at).getTime()) < 60000);
+});
+
 test('un paquete sin duración hereda la de Emby y, si no hay Emby, 30 días', async () => {
   db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
   db.prepare(
