@@ -41,7 +41,24 @@ test('get_packages acepta un array pelado y normaliza campos', async () => {
   assert.equal(packs[0].is_trial, false);
   assert.equal(packs[0].is_official, true);
   assert.equal(packs[0].max_connections, 2);
+  assert.equal(packs[0].official_duration, 720);
+  assert.equal(packs[0].official_duration_in, '');
   assert.deepEqual(packs[0].bouquets, ['1', '2']);
+  const mes = xui.normalizePackage({
+    id: 2,
+    package_name: '1 MES- 1 CONEXION',
+    is_trial: '0',
+    is_official: '1',
+    trial_duration: '0',
+    trial_duration_in: 'Hours',
+    official_duration: '1',
+    official_duration_in: 'Months',
+    max_connections: '1',
+  });
+  assert.equal(mes.official_duration, 1);
+  assert.equal(mes.official_duration_in, 'Months');
+  assert.equal(mes.trial_duration_in, 'Hours');
+  assert.equal(mes.is_trial, false);
   const url = seen[0];
   assert.equal(url.searchParams.get('action'), 'get_packages');
   assert.equal(url.searchParams.get('api_key'), 'test-xui-key');
