@@ -219,6 +219,8 @@ test('edit_line lee la línea, reenvía el conjunto completo y lo comprueba', as
   assert.equal(disabled.get('bouquets_selected'), '["10","11"]');
   assert.equal(disabled.get('is_trial'), null);
   assert.deepEqual(disabled.getAll('access_output[]'), ['4', '5']);
+  assert.equal(seen[1].search.includes('allowed_ua'), false);
+  assert.deepEqual(disabled.getAll('allowed_ips[]'), ['1.2.3.4']);
 });
 
 test('is_trial solo se envía cuando la línea es prueba', async () => {
@@ -345,6 +347,36 @@ test('allowed_ips y allowed_ua vacíos no se mandan como texto []', async () => 
     () => xui.editLine('7', { exp_date: '2026-07-01 00:00' }),
     /bloquea los dispositivos/
   );
+
+  function omitsEmptyAccess(url) {
+    assert.equal(url.search.includes('allowed_ips'), false);
+    assert.equal(url.search.includes('allowed_ua'), false);
+    assert.equal(url.searchParams.get('is_trial'), null);
+    assert.deepEqual(url.searchParams.getAll('access_output[]'), ['1', '2', '3']);
+    assert.equal(url.searchParams.get('username'), 'ana');
+    assert.equal(url.searchParams.get('password'), 'secret');
+    assert.equal(url.searchParams.get('bouquets_selected'), '["10"]');
+  }
+
+  line.allowed_ips = [''];
+  line.allowed_ua = '[""]';
+  line.is_trial = '0';
+  after = { ...line, allowed_ips: [], allowed_ua: [] };
+  seen.length = 0;
+  await xui.disableLine('7');
+  omitsEmptyAccess(seen[1]);
+  assert.equal(seen[1].searchParams.get('enabled'), '0');
+
+  line.allowed_ips = [];
+  line.allowed_ua = '[]';
+  seen.length = 0;
+  await xui.editLine('7', { exp_date: '2026-08-01 00:00' });
+  omitsEmptyAccess(seen[1]);
+  assert.equal(seen[1].searchParams.get('exp_date'), '2026-08-01 00:00');
+
+  after = { ...line, allowed_ips: [''], allowed_ua: [''] };
+  seen.length = 0;
+  await assert.rejects(() => xui.disableLine('7'), /bloquea los dispositivos/);
 });
 
 test('edit_line falla si después el usuario o los bouquets no coinciden', async () => {

@@ -488,35 +488,37 @@ function lineRow(raw) {
   return row;
 }
 
-// allowed_ips / allowed_ua. El texto '[]' no es una lista vacía: XUI lo guarda
-// como ['[]'] y esa whitelist no deja entrar a ningún dispositivo.
-// Con valores se repite la clave (allowed_ips[]=1.2.3.4), igual que access_output[].
-// Vacío se omite: edit_line reescribe la línea y así no queda restricción.
-function accessEntries(value) {
+// allowed_ips / allowed_ua, confirmado en una línea temporal:
+// omitirlos deja [] y []. Mandarlos vacíos guarda ['']. El texto '[]' guarda ['[]'].
+// Solo se envían con valores, repetidos (allowed_ips[]=1.2.3.4), junto al resto
+// de campos y access_output[]. is_trial solo sale si es 1.
+function listedAccess(value) {
   if (value == null || value === '') return [];
   if (Array.isArray(value)) {
-    return value
-      .map((item) => (item == null ? '' : String(item).trim()))
-      .filter((item) => item !== '');
+    return value.map((item) => (item == null ? '' : String(item).trim()));
   }
   if (typeof value !== 'string') return [];
   const text = value.trim();
   if (!text || text === 'null' || text === '[]') return [];
   try {
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return accessEntries(parsed);
+    if (Array.isArray(parsed)) return listedAccess(parsed);
   } catch {
     /* lista separada por comas */
   }
-  return text.split(/[,\n]+/).map((part) => part.trim()).filter(Boolean);
+  return text.split(/[,\n]+/).map((part) => part.trim()).filter((part) => part !== '');
+}
+
+function accessEntries(value) {
+  return listedAccess(value).filter((item) => item !== '' && item !== '[]');
 }
 
 function cleanAccess(value) {
-  return accessEntries(value).filter((item) => item !== '[]');
+  return accessEntries(value);
 }
 
 function hasBogusAccess(value) {
-  return accessEntries(value).some((item) => item === '[]');
+  return listedAccess(value).some((item) => item === '[]' || item === '');
 }
 
 function sameAccess(sent, got) {
