@@ -81,7 +81,24 @@ function install(overrides = {}) {
     },
     overrides.maxplayer
   );
-  accounts.setIntegrations({ emby, xui, maxplayer });
+  const hotplayer = Object.assign(
+    {
+      isConfigured: () => true,
+      normalizeMac: (raw) => {
+        const text = String(raw || '').trim().toUpperCase();
+        if (!text || /[^0-9A-F\s:.-]/.test(text)) return '';
+        const compact = text.replace(/[\s:.-]/g, '');
+        if (!/^[0-9A-F]{12}$/.test(compact)) return '';
+        return compact.match(/.{2}/g).join(':');
+      },
+      addPlaylist: async (mac, body) => {
+        calls.push(['hot.add', mac, body && body.username, body && body.name]);
+        return { status: 'success' };
+      },
+    },
+    overrides.hotplayer
+  );
+  accounts.setIntegrations({ emby, xui, maxplayer, hotplayer });
   return calls;
 }
 
@@ -108,7 +125,7 @@ before(() => {
 beforeEach(() => install());
 
 after(() => {
-  accounts.setIntegrations({ emby: null, xui: null, maxplayer: null });
+  accounts.setIntegrations({ emby: null, xui: null, maxplayer: null, hotplayer: null });
   db.close();
 });
 
@@ -924,4 +941,148 @@ test('la ficha ofrece editar y añadir el servicio que falta', () => {
   assert.match(detail, /selectedPackageId: suggestedXuiPackageId/);
   assert.match(menu, />Editar</);
   assert.match(menu, /#editar/);
+  assert.match(detail, /id="hotplayer"/);
+  assert.match(detail, /no quita la lista/);
+});
+
+test('HotPlayer carga la lista, no cobra de más y el mensaje no lleva credenciales', async () => {
+  const calls = install();
+  const before = creditsOf(reseller.id);
+  const created = await accounts.createAccount({
+    username: 'solo.hot',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: {
+      emby: false,
+      xui: true,
+      playerKind: 'totalflix',
+      hotplayer: true,
+      mac: 'aa-bb-cc-dd-ee-ff',
+      packageId: '7',
+    },
+  });
+  assert.equal(created.cost, 2);
+  assert.equal(creditsOf(reseller.id), before - 2);
+  assert.equal(calls.some((call) => call[0] === 'mp.create'), false);
+  assert.deepEqual(
+    calls.find((call) => call[0] === 'hot.add').slice(1),
+    ['AA:BB:CC:DD:EE:FF', 'solo.hot', undefined]
+  );
+  const row = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.player_kind, 'hotplayer');
+  assert.equal(row.hotplayer_mac, 'AA:BB:CC:DD:EE:FF');
+  assert.equal(row.hotplayer_ok, 1);
+  const card = accounts.connectionCard(created.id, actor());
+  assert.match(card.message, /La lista ya está cargada en tu tele/);
+  assert.equal(card.message.includes('Contraseña'), false);
+  assert.equal(card.message.includes('clave'), false);
+  assert.equal(card.message.toLowerCase().includes('cisnerojo'), false);
+  assert.equal(card.message.includes('http'), false);
+});
+
+test('Max Player y HotPlayer a la vez cobran solo el extra de Max Player', async () => {
+  const calls = install();
+  const before = creditsOf(reseller.id);
+  const created = await accounts.createAccount({
+    username: 'dos.apps',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: accounts.parseServices({
+      service_xui: '1',
+      dest_maxplayer: '1',
+      dest_hotplayer: '1',
+      hotplayer_mac: '10:20:30:40:50:60',
+      xui_package_id: '7',
+    }),
+  });
+  assert.equal(created.cost, 2 + 3);
+  assert.equal(creditsOf(reseller.id), before - 5);
+  assert.ok(calls.some((call) => call[0] === 'mp.create'));
+  assert.ok(calls.some((call) => call[0] === 'hot.add' && call[1] === '10:20:30:40:50:60'));
+  const row = db.prepare('SELECT player_kind, hotplayer_mac FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.player_kind, 'maxplayer');
+  assert.equal(row.hotplayer_mac, '10:20:30:40:50:60');
+  const card = accounts.connectionCard(created.id, actor());
+  assert.match(card.message, /📡 TOTALFLIX/);
+  assert.match(card.message, /Contraseña: clave/);
+  assert.match(card.message, /Abre la app HotPlayer/);
+  assert.equal(card.message.toLowerCase().includes('cisnerojo'), false);
+});
+
+test('sin MAC válida no se crea la línea XUI', async () => {
+  const calls = install();
+  await assert.rejects(
+    () => accounts.createAccount({
+      username: 'sin.mac',
+      password: 'clave',
+      planId: plan.id,
+      owner: actor(),
+      services: { emby: false, xui: true, hotplayer: true, mac: 'no-es-mac', packageId: '7' },
+    }),
+    /MAC/
+  );
+  assert.equal(calls.some((call) => call[0] === 'xui.create'), false);
+});
+
+test('cambiar usuario o contraseña vuelve a cargar HotPlayer y borrarla no llama a la API', async () => {
+  const calls = install();
+  const created = await accounts.createAccount({
+    username: 'hot.edit',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: false, xui: true, hotplayer: true, mac: 'AA:BB:CC:DD:EE:01', packageId: '7' },
+  });
+  calls.length = 0;
+  await accounts.editAccount({
+    accountId: created.id,
+    username: 'hot.nuevo',
+    password: 'nueva',
+    actor: actor(),
+  });
+  const uploaded = calls.filter((call) => call[0] === 'hot.add');
+  assert.equal(uploaded.length, 1);
+  assert.equal(uploaded[0][1], 'AA:BB:CC:DD:EE:01');
+  assert.equal(uploaded[0][2], 'hot.nuevo');
+  calls.length = 0;
+  const removed = await accounts.deleteAccount({ accountId: created.id, actor: actor() });
+  assert.equal(removed.hotplayerLeft, true);
+  assert.equal(calls.some((call) => String(call[0]).startsWith('hot.')), false);
+  assert.ok(calls.some((call) => call[0] === 'xui.del'));
+});
+
+test('añadir HotPlayer a una cuenta XUI no cobra créditos', async () => {
+  const calls = install();
+  const created = await accounts.createAccount({
+    username: 'ya.xui',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: '7' },
+  });
+  const before = creditsOf(reseller.id);
+  calls.length = 0;
+  const result = await accounts.setHotPlayer({
+    accountId: created.id,
+    mac: 'aabbccddeef0',
+    actor: actor(),
+  });
+  assert.equal(result.mac, 'AA:BB:CC:DD:EE:F0');
+  assert.equal(creditsOf(reseller.id), before);
+  assert.deepEqual(calls.map((call) => call[0]), ['hot.add']);
+  const row = db.prepare('SELECT player_kind, hotplayer_ok FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.player_kind, 'hotplayer');
+  assert.equal(row.hotplayer_ok, 1);
+  const renewBefore = creditsOf(reseller.id);
+  await accounts.renewAccount({ accountId: created.id, planId: plan.id, actor: actor() });
+  assert.equal(creditsOf(reseller.id), renewBefore - plan.xui_credit_cost);
+});
+
+test('el filtro de HotPlayer no mezcla las líneas TotalFlix', () => {
+  const hot = accounts.accountListFilters({ servicio: 'hotplayer' });
+  assert.match(hot.clauses[0], /hotplayer_mac/);
+  const flix = accounts.accountListFilters({ servicio: 'totalflix' });
+  assert.match(flix.clauses[0], /hotplayer_mac IS NULL/);
 });

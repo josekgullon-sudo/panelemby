@@ -75,6 +75,12 @@ const config = {
   // Servidores que alterna «Reparar». Se pueden cambiar por env.
   maxplayerDomainPatoId: optional('MAXPLAYER_DOMAIN_PATO_ID') || '1788037663857452993',
   maxplayerDomainCisneId: optional('MAXPLAYER_DOMAIN_CISNE_ID') || '1761067741584705224',
+
+  // HotPlayer: solo carga listas. No activa (eso gasta créditos) ni borra.
+  hotplayerApiUrl: (optional('HOTPLAYER_API_URL') || 'https://hotplayer.app/api/v1/reseller').replace(/\/+$/, ''),
+  hotplayerApiKey: optional('HOTPLAYER_API_KEY'),
+  hotplayerDomain: optional('HOTPLAYER_DOMAIN') || 'cisnerojo.click',
+  hotplayerPort: intEnv('HOTPLAYER_PORT', 80),
 };
 
 if (!['disable', 'vitrina'].includes(config.expiryMode)) {

@@ -1,5 +1,5 @@
 <% const d = daysLeft(a.expires_at); %>
-<% const needsRetry = !!(a.provision_error || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.has_emby && !a.emby_user_id)); %>
+<% const needsRetry = !!(a.provision_error || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.has_emby && !a.emby_user_id) || ((a.hotplayer_mac || a.player_kind === 'hotplayer') && !a.hotplayer_ok)); %>
 <tr>
   <td class="td-strong td-account">
     <a class="account-name" href="<%= actionBase %>/<%= a.id %>"><%= a.username %></a>
@@ -19,7 +19,7 @@
   </td>
   <td class="td-status"><%- include('./account-status', { a: a, d: d }) %></td>
   <td class="td-actions">
-    <button type="button" class="row-open" aria-label="Acciones" data-id="<%= a.id %>" data-user="<%= a.username %>" data-plan="<%= a.plan_id || '' %>"<% if (canMove) { %> data-owner="<%= a.owner_id %>"<% } %><% if (needsRetry) { %> data-retry="1"<% } %><% if (a.maxplayer_user_id) { %> data-repair="1" data-domain="<%= domainLabel(a.maxplayer_domain_id) %>" data-next="<%= nextDomainLabel(a.maxplayer_domain_id) %>"<% } %>><span class="row-open-label">Acciones</span></button>
+    <button type="button" class="row-open" aria-label="Acciones" data-id="<%= a.id %>" data-user="<%= a.username %>" data-plan="<%= a.plan_id || '' %>"<% if (canMove) { %> data-owner="<%= a.owner_id %>"<% } %><% if (needsRetry) { %> data-retry="1"<% } %><% if (a.maxplayer_user_id) { %> data-repair="1" data-domain="<%= domainLabel(a.maxplayer_domain_id) %>" data-next="<%= nextDomainLabel(a.maxplayer_domain_id) %>"<% } %><% if (a.hotplayer_mac || a.player_kind === 'hotplayer') { %> data-hot="1"<% } %>><span class="row-open-label">Acciones</span></button>
     <button type="button" class="btn btn-danger row-delete">Borrar</button>
   </td>
 </tr>

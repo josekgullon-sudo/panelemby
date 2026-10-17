@@ -115,6 +115,7 @@
     repair.setAttribute('data-next', btn.getAttribute('data-next') || 'PATO');
     del.action = root + '/borrar';
     del.setAttribute('data-user', user);
+    del.setAttribute('data-hot', btn.getAttribute('data-hot') || '');
     if (renewPlan && plan) renewPlan.value = plan;
     if (planSelect) {
       var first = '';
@@ -159,7 +160,10 @@
 
   del.addEventListener('submit', function (ev) {
     var user = del.getAttribute('data-user') || '';
-    if (!confirm('¿Borrar ' + user + ' en todos los servicios donde exista (Emby, XUI, Max Player)?')) {
+    var hotNote = del.getAttribute('data-hot') === '1'
+      ? ' La lista de HotPlayer se queda en la tele: el panel no la borra.'
+      : '';
+    if (!confirm('¿Borrar ' + user + ' en todos los servicios donde exista (Emby, XUI, Max Player)?' + hotNote)) {
       ev.preventDefault();
     }
   });

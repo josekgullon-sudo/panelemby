@@ -1007,6 +1007,20 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
   line-height: 1.3;
   color: var(--text-dim);
 }
+.svc-mac {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hot-mac { display: none; }
+.create-services:has(#dest-hotplayer:checked) .hot-mac,
+.form-stack:has(#add-hot:checked) .hot-mac,
+.form-stack:has(#detail-hot) .hot-mac {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .svc-flix { background: rgba(232, 184, 69, 0.16); color: var(--amber); }
 .svc-domain { background: #243044; color: #9ec1ff; }
 .btn .icon { width: 16px; height: 16px; flex: 0 0 auto; display: block; fill: currentColor; }

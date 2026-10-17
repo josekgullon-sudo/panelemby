@@ -43,7 +43,9 @@
 </section>
 <% } %>
 
-<% if (account.xui_line_id && account.player_kind !== 'maxplayer') { %>
+<% const hotOn = account.player_kind === 'hotplayer' || account.hotplayer_mac; %>
+<% const maxOn = account.maxplayer_user_id || account.player_kind === 'maxplayer'; %>
+<% if (account.xui_line_id && !maxOn && !hotOn) { %>
 <section class="panel">
   <div class="panel-head"><h2>TotalFlix</h2></div>
   <table class="kv">
@@ -53,6 +55,12 @@
     <% if (account.xui_package_name) { %><tr><th>Paquete</th><td><%= account.xui_package_name %></td></tr><% } %>
   </table>
   <p class="hint">Esos datos sirven en la app IPTV o en la lista M3U que te envió tu proveedor.</p>
+</section>
+<% } %>
+<% if (hotOn) { %>
+<section class="panel">
+  <div class="panel-head"><h2>HotPlayer</h2></div>
+  <p class="hint">La lista ya está cargada en tu tele. Abre la app HotPlayer y reproduce. No hace falta poner servidor, usuario ni contraseña.</p>
 </section>
 <% } %>
 

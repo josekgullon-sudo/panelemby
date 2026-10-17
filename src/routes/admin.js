@@ -65,7 +65,7 @@ router.get('/', (req, res) => {
     .prepare(
       `SELECT a.username, a.expires_at, a.emby_user_id, a.emby_expires_at,
               a.xui_line_id, a.xui_expires_at, a.has_emby, a.is_trial,
-              a.player_kind, a.maxplayer_user_id,
+              a.player_kind, a.maxplayer_user_id, a.hotplayer_mac,
               p.username AS owner, pl.duration_days
        FROM emby_accounts a
        JOIN panel_users p ON p.id = a.owner_id
@@ -309,6 +309,7 @@ router.get(
     packages: form.packages,
     xuiConfigured: form.xuiConfigured,
     maxplayerConfigured: form.maxplayerConfigured,
+    hotplayerConfigured: form.hotplayerConfigured,
     xuiNotice: form.notice,
     formAction: '/admin/cuentas',
     syncJob: jobSnapshot(),
@@ -490,8 +491,13 @@ router.post(
   '/cuentas/:id/borrar',
   wrap(async (req, res) => {
     try {
-      await accounts.deleteAccount({ accountId: parseInt(req.params.id, 10), actor: req.user });
-      req.setFlash('ok', 'Cuenta borrada en todos los servicios donde existía');
+      const result = await accounts.deleteAccount({ accountId: parseInt(req.params.id, 10), actor: req.user });
+      req.setFlash(
+        'ok',
+        result.hotplayerLeft
+          ? 'Cuenta borrada en Emby, XUI y Max Player. La lista de HotPlayer sigue en la tele: el panel no la borra.'
+          : 'Cuenta borrada en todos los servicios donde existía'
+      );
       res.redirect('/admin/cuentas');
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');
@@ -512,6 +518,7 @@ router.get(
         plans,
         packages: form.packages,
         maxplayerConfigured: form.maxplayerConfigured,
+    hotplayerConfigured: form.hotplayerConfigured,
         suggestedEmbyPlanId: accounts.suggestEmbyPlanId(payload.account),
         suggestedXuiPackageId: accounts.suggestXuiPackageId(payload.account, form.packages),
         base: '/admin/cuentas',
@@ -601,6 +608,24 @@ router.post(
 );
 
 router.post(
+  '/cuentas/:id/hotplayer',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.setHotPlayer({
+        accountId: parseInt(req.params.id, 10),
+        mac: req.body.hotplayer_mac,
+        actor: req.user,
+      });
+      req.setFlash('ok', `Lista cargada en HotPlayer (${result.mac}). No se han cobrado créditos.`);
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
   '/cuentas/:id/servicio',
   wrap(async (req, res) => {
     const back = `/admin/cuentas/${req.params.id}`;
@@ -612,6 +637,8 @@ router.post(
         planId: parseInt(req.body.plan_id, 10),
         packageId: req.body.xui_package_id,
         playerKind: req.body.player_kind,
+        hotplayer: req.body.dest_hotplayer,
+        mac: req.body.hotplayer_mac,
       });
       const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
       card.mode = 'created';

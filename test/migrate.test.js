@@ -64,6 +64,8 @@ test('la migración añade ids externos y costes sin perder la cuenta vieja', ()
     'maxplayer_list_ok',
     'provision_error',
     'maxplayer_domain_id',
+    'hotplayer_mac',
+    'hotplayer_ok',
     'emby_expires_at',
     'xui_expires_at',
   ]) {

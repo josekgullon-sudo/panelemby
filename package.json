@@ -2,7 +2,7 @@
   "name": "panelemby",
   "version": "0.1.0",
   "private": true,
-  "description": "Panel de gestión de usuarios para Emby, XUI.one y Max Player: admin, resellers con créditos y clientes finales",
+  "description": "Panel de gestión de usuarios para Emby, XUI.one, Max Player y HotPlayer: admin, resellers con créditos y clientes finales",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -18,7 +18,8 @@
     "test": "node --test test/*.test.js",
     "test-emby": "node scripts/test-emby.js",
     "test-xui": "node scripts/test-xui.js",
-    "test-maxplayer": "node scripts/test-maxplayer.js"
+    "test-maxplayer": "node scripts/test-maxplayer.js",
+    "test-hotplayer": "node scripts/test-hotplayer.js"
   },
   "engines": {
     "node": ">=18"

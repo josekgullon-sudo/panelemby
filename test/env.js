@@ -21,4 +21,8 @@ fill('XUI_PUBLIC_URL', 'http://iptv.test:8080');
 fill('MAXPLAYER_API_URL', 'https://mp.test/v3/api/public');
 fill('MAXPLAYER_API_KEY', 'test-mp-key');
 fill('MAXPLAYER_DOMAIN_ID', '9');
+fill('HOTPLAYER_API_URL', 'https://hotplayer.test/api/v1/reseller');
+fill('HOTPLAYER_API_KEY', 'test-hotplayer-key');
+fill('HOTPLAYER_DOMAIN', 'cisnerojo.click');
+fill('HOTPLAYER_PORT', '80');
 fill('DB_PATH', path.join(os.tmpdir(), `panel-test-${process.pid}.sqlite`));

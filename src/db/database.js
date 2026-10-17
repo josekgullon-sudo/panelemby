@@ -46,6 +46,12 @@ ensureColumn(
 );
 ensureColumn('emby_accounts', 'provision_error', 'ALTER TABLE emby_accounts ADD COLUMN provision_error TEXT');
 ensureColumn('emby_accounts', 'maxplayer_domain_id', 'ALTER TABLE emby_accounts ADD COLUMN maxplayer_domain_id TEXT');
+ensureColumn('emby_accounts', 'hotplayer_mac', 'ALTER TABLE emby_accounts ADD COLUMN hotplayer_mac TEXT');
+ensureColumn(
+  'emby_accounts',
+  'hotplayer_ok',
+  'ALTER TABLE emby_accounts ADD COLUMN hotplayer_ok INTEGER NOT NULL DEFAULT 0'
+);
 ensureColumn('emby_accounts', 'emby_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN emby_expires_at TEXT');
 ensureColumn('emby_accounts', 'xui_expires_at', 'ALTER TABLE emby_accounts ADD COLUMN xui_expires_at TEXT');
 ensureColumn('xui_packages', 'trial_duration_in', 'ALTER TABLE xui_packages ADD COLUMN trial_duration_in TEXT');
@@ -67,8 +73,8 @@ function relaxExpiresNotNull() {
     'id', 'emby_user_id', 'username', 'password_hash', 'password_enc', 'owner_id', 'plan_id',
     'expires_at', 'status', 'notes', 'created_at', 'has_emby', 'xui_line_id', 'xui_package_id',
     'xui_package_name', 'xui_bouquets', 'player_kind', 'maxplayer_user_id', 'maxplayer_list_ok',
-    'maxplayer_domain_id', 'provision_error', 'emby_expires_at', 'xui_expires_at', 'emby_cut',
-    'xui_cut', 'is_trial', 'screens',
+    'maxplayer_domain_id', 'hotplayer_mac', 'hotplayer_ok', 'provision_error', 'emby_expires_at',
+    'xui_expires_at', 'emby_cut', 'xui_cut', 'is_trial', 'screens',
   ];
   const extra = names.filter((name) => !kept.includes(name));
   if (extra.length) {
@@ -101,6 +107,8 @@ function relaxExpiresNotNull() {
           maxplayer_user_id   TEXT,
           maxplayer_list_ok   INTEGER NOT NULL DEFAULT 0,
           maxplayer_domain_id TEXT,
+          hotplayer_mac       TEXT,
+          hotplayer_ok        INTEGER NOT NULL DEFAULT 0,
           provision_error     TEXT,
           emby_expires_at     TEXT,
           xui_expires_at      TEXT,
@@ -162,6 +170,8 @@ db.exec(`
     ON emby_accounts(player_kind, expires_at) WHERE status != 'deleted' AND player_kind IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_emby_accounts_open_domain
     ON emby_accounts(maxplayer_domain_id, expires_at) WHERE status != 'deleted' AND maxplayer_domain_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_hot_mac
+    ON emby_accounts(hotplayer_mac) WHERE hotplayer_mac IS NOT NULL;
 `);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue

@@ -3,9 +3,12 @@
   <% const showXui = a.xui_line_id || a.player_kind; %>
   <% if (showEmby) { %><span class="badge svc-emby">Emby</span><% } %>
   <% if (showXui) { %>
+    <% const isMax = a.player_kind === 'maxplayer' || a.maxplayer_user_id; %>
+    <% const isHot = a.player_kind === 'hotplayer' || a.hotplayer_mac; %>
     <span class="svc-with-sub">
       <span class="badge svc-xui">XUI</span>
-      <span class="svc-sub"><%= (a.player_kind === 'maxplayer' || a.maxplayer_user_id) ? 'Max Player' : 'TotalFlix' %></span>
+      <span class="svc-sub"><%= isMax && isHot ? 'Max Player · HotPlayer' : isMax ? 'Max Player' : isHot ? 'HotPlayer' : 'TotalFlix' %></span>
+      <% if (isHot && a.hotplayer_mac) { %><span class="svc-mac"><%= a.hotplayer_mac %></span><% } %>
     </span>
   <% } %>
   <% if (a.is_trial) { %><span class="badge badge-warn">Prueba</span><% } %>
