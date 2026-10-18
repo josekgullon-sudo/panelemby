@@ -18,18 +18,23 @@
   <symbol id="i-plan" viewBox="0 0 16 16"><path d="M8 1l7 4-7 4-7-4zM1 9l7 4 7-4"/></symbol>
   <symbol id="i-coin" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="6" ry="2.5"/><path d="M2 4v8c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V4M2 8c0 1.4 2.7 2.5 6 2.5S14 9.4 14 8"/></symbol>
   <symbol id="i-wrench" viewBox="0 0 24 24"><path fill="currentColor" d="M22.7 19.3 13.6 10.2a5.5 5.5 0 0 0-7.4-7.1L9 5.9 7.1 7.8 4.3 5a5.5 5.5 0 0 0 7.1 7.4l9.1 9.1a1.5 1.5 0 0 0 2.1 0 1.5 1.5 0 0 0 .1-2.2z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M8 8h10v12H8z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M6 16H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 20h4l11-11-4-4L4 16v4z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20 12a8 8 0 1 1-2.3-5.7M20 4v6h-6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M9 7V5h6v2M8 7l1 13h6l1-13"/></symbol>
 </svg>
 <% const navKey = typeof nav !== 'undefined' ? nav : ''; %>
 <div class="shell">
   <aside class="sidebar">
-    <a class="wordmark" href="/">
-      <span class="wordmark-total">TOTAL<em>FLIX</em></span>
+    <a class="wordmark" href="/" aria-label="TOTALFLIX">
+      <span class="logo-mark" aria-hidden="true"></span>
+      <span class="wordmark-total">TOTAL<span>FLIX</span></span>
     </a>
     <% if (currentUser && currentUser.role === 'admin') { %>
       <nav class="side-nav" aria-label="Principal">
         <a href="/admin" class="<%= navKey === 'dashboard' ? 'is-active' : '' %>">
           <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-grid"></use></svg>
-          Dashboard</a>
+          Inicio</a>
         <a href="/admin/cuentas" class="<%= navKey === 'cuentas' ? 'is-active' : '' %>">
           <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-user"></use></svg>
           Cuentas</a>
@@ -47,7 +52,7 @@
       <nav class="side-nav" aria-label="Principal">
         <a href="/reseller" class="<%= navKey === 'dashboard' ? 'is-active' : '' %>">
           <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-grid"></use></svg>
-          Dashboard</a>
+          Inicio</a>
         <a href="/reseller/cuentas" class="<%= navKey === 'cuentas' ? 'is-active' : '' %>">
           <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-user"></use></svg>
           Mis cuentas</a>
@@ -78,5 +83,5 @@
     </header>
     <main class="content">
     <% if (flash) { %>
-      <div class="flash flash-<%= flash.type %>" role="status"><%= flash.message %></div>
+      <div class="flash flash-<%= flash.type %>" role="<%= flash.type === 'error' ? 'alert' : 'status' %>"><%= flash.message %></div>
     <% } %>

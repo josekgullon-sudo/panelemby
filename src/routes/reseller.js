@@ -106,11 +106,9 @@ router.post(
         notes: req.body.notes,
         services,
       });
-      const card = accounts.connectionCard(created.id, req.user);
-      card.mode = 'created';
-      req.session.newAccount = card;
       if (created.provisionError) req.setFlash('error', created.provisionError);
-      res.redirect('/reseller/cuentas');
+      else req.setFlash('ok', 'Cuenta creada. Copia el mensaje y envíaselo al cliente.');
+      res.redirect(`/reseller/cuentas/${created.id}#datos-acceso`);
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');
     }
@@ -155,11 +153,10 @@ router.post(
   })
 );
 
-// Reenviar datos de conexión (solo cuentas propias)
 router.get('/cuentas/:id/datos', (req, res) => {
   try {
-    req.session.newAccount = accounts.connectionData(parseInt(req.params.id, 10), req.user);
-    res.redirect('/reseller/cuentas');
+    accounts.connectionData(parseInt(req.params.id, 10), req.user);
+    res.redirect(`/reseller/cuentas/${req.params.id}#datos-acceso`);
   } catch (err) {
     backWithError(req, res, err, '/reseller/cuentas');
   }

@@ -1,14 +1,33 @@
 <%- include('partials/header', { title: account.username, nav: 'cuentas' }) %>
 
-<p><a href="<%= listUrl %>">← Volver a cuentas</a></p>
+<p><a class="back-link" href="<%= listUrl %>">← Volver a cuentas</a></p>
 
 <section class="panel">
   <div class="panel-head">
     <h2><%= account.username %></h2>
-    <div class="filter-row">
-      <%- include('partials/service-badges', { a: account }) %>
-      <%- include('partials/repair-button', { a: account, repairAction: base }) %>
-    </div>
+    <%- include('partials/service-badges', { a: account }) %>
+  </div>
+  <div class="action-bar action-bar-lg">
+    <a class="btn" href="#datos-acceso">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"></use></svg>
+      Copiar datos
+    </a>
+    <a class="btn" href="#renovar">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"></use></svg>
+      Renovar
+    </a>
+    <a class="btn" href="#editar">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pencil"></use></svg>
+      Editar
+    </a>
+    <%- include('partials/repair-button', { a: account, repairAction: base }) %>
+    <form method="post" action="<%= base %>/<%= account.id %>/borrar" class="inline"
+          onsubmit="return confirm(<%- JSON.stringify('¿Borrar ' + account.username + ' en Emby, XUI y Max Player?' + ((account.hotplayer_mac || account.player_kind === 'hotplayer') ? ' La lista de HotPlayer se queda en la tele.' : '')) %>);">
+      <button class="btn btn-danger" type="submit">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trash"></use></svg>
+        Borrar
+      </button>
+    </form>
   </div>
   <dl class="detail-grid">
     <div><dt>Estado</dt><dd><%= account.status === 'active' ? 'activa' : 'caducada' %></dd></div>
@@ -46,21 +65,23 @@
     <div class="copy-line">
       <span class="copy-label">Usuario</span>
       <code class="copy-value"><%= access.username %></code>
-      <button type="button" class="btn btn-sm" data-copy="username">Copiar</button>
+      <button type="button" class="btn" data-copy="username">Copiar</button>
     </div>
     <div class="copy-line">
       <span class="copy-label">Contraseña</span>
       <% if (access.password) { %>
         <code class="copy-value"><%= access.password %></code>
-        <button type="button" class="btn btn-sm" data-copy="password">Copiar</button>
+        <button type="button" class="btn" data-copy="password">Copiar</button>
       <% } else { %>
         <span class="td-dim">No está guardada. Pon una nueva en Editar.</span>
       <% } %>
     </div>
-    <div class="copy-line">
-      <button type="button" class="btn btn-primary btn-sm" data-copy="message">Copiar mensaje de bienvenida</button>
-    </div>
   </div>
+  <% if (access.message) { %>
+    <p class="hint">Mensaje para enviar al cliente:</p>
+    <pre class="welcome-text" id="welcome-text"><%= access.message %></pre>
+    <button type="button" class="btn btn-primary" data-copy="message">Copiar mensaje de bienvenida</button>
+  <% } %>
   <script type="application/json" id="access-copy"><%- JSON.stringify({ username: access.username, password: access.password || '', message: access.message || '' }).replace(/</g, '\\u003c') %></script>
 </section>
 <% } %>
@@ -91,13 +112,25 @@
     <input id="edit-screens" name="screens" type="number" min="1" max="20" required value="<%= account.screens || account.plan_screens || 1 %>" inputmode="numeric">
     <label for="edit-notes">Notas</label>
     <textarea id="edit-notes" name="notes" rows="3"><%= account.notes || '' %></textarea>
-    <p class="hint">Usuario, contraseña y conexiones se actualizan en Emby, XUI y Max Player. Si hay HotPlayer, al cambiar usuario o contraseña se vuelve a cargar la lista. Si uno falla, el panel no guarda el cambio.</p>
-    <button class="btn btn-primary">Guardar cambios</button>
+    <p class="hint">Se actualiza en Emby, XUI y Max Player. Si hay HotPlayer, al cambiar usuario o contraseña se vuelve a cargar la lista. Si uno falla, no se guarda.</p>
+    <button class="btn btn-primary" data-loading="Guardando…">Guardar cambios</button>
   </form>
 </section>
 
-<section class="panel">
-  <div class="panel-head"><h2>Tiempo</h2></div>
+<section class="panel" id="renovar">
+  <div class="panel-head"><h2>Renovar</h2></div>
+  <form method="post" action="<%= base %>/<%= account.id %>/renovar" class="form-stack">
+    <label for="renew-plan">Duración</label>
+    <select name="plan_id" id="renew-plan" required aria-label="Duración">
+      <% plans.forEach(p => { %>
+        <option value="<%= p.id %>" <%= String(account.plan_id) === String(p.id) ? 'selected' : '' %>><%= p.name %> · +<%= formatDuration(p.duration_days) %> · <%= p.credit_cost %> cr.</option>
+      <% }) %>
+    </select>
+    <p class="hint">Suma este tiempo a la cuenta.</p>
+    <button class="btn btn-primary" data-loading="Renovando…">Renovar</button>
+  </form>
+  <details class="more-block">
+    <summary>Añadir tiempo a un solo servicio</summary>
   <div class="split-actions">
     <% if (account.emby_user_id) { %>
     <form method="post" action="<%= base %>/<%= account.id %>/ampliar" class="form-stack">
@@ -120,11 +153,12 @@
         <%- include('partials/xui-duration-options') %>
       </select>
       <p class="expiry-preview" id="extend-xui-expiry" data-base="<%= account.xui_expires_at || '' %>" aria-live="polite"></p>
-      <p class="hint">Suma esa duración a la línea. Emby no cambia. Si hay Max Player, se suma su coste. HotPlayer no suma nada.</p>
-      <button class="btn btn-primary btn-sm">Ampliar XUI</button>
+      <p class="hint">Solo la línea. Emby no cambia.</p>
+      <button class="btn btn-primary">Ampliar línea</button>
     </form>
     <% } %>
   </div>
+  </details>
 </section>
 
 <% if (!account.emby_user_id || !account.xui_line_id) { %>
@@ -183,7 +217,7 @@
   <form method="post" action="<%= base %>/<%= account.id %>/hotplayer" class="form-stack">
     <label for="detail-hot-mac">MAC del cliente</label>
     <input id="detail-hot-mac" name="hotplayer_mac" value="<%= account.hotplayer_mac || '' %>" placeholder="AA:BB:CC:DD:EE:FF" required autocomplete="off" spellcheck="false" maxlength="17" aria-label="MAC de HotPlayer">
-    <p class="hint">Carga la lista Xtream en esa tele. No gasta créditos. Si cambias el usuario o la contraseña de la línea, se vuelve a enviar con el mismo nombre. Borrar la cuenta no quita la lista de la tele.</p>
+    <p class="hint">Carga la lista en esa tele. No gasta créditos. Borrar la cuenta no quita la lista de la tele.</p>
     <% if (account.hotplayer_mac && !account.hotplayer_ok) { %>
       <p class="hint hint-warn">La última carga no llegó. Vuelve a enviarla o pulsa Reintentar.</p>
     <% } %>
@@ -193,11 +227,10 @@
 </section>
 <% } %>
 
+<% if (account.emby_user_id) { %>
 <section class="panel">
   <div class="panel-head"><h2>Dispositivos Emby</h2></div>
-  <% if (!account.emby_user_id) { %>
-    <p class="empty">Esta cuenta no tiene Emby.</p>
-  <% } else if (embyDevicesError) { %>
+  <% if (embyDevicesError) { %>
     <p class="empty"><%= embyDevicesError %></p>
   <% } else if (!embyDevices.length) { %>
     <p class="empty">Ningún dispositivo de Emby.</p>
@@ -222,12 +255,12 @@
   </table>
   <% } %>
 </section>
+<% } %>
 
+<% if (account.maxplayer_user_id) { %>
 <section class="panel">
   <div class="panel-head"><h2>Dispositivos Max Player</h2></div>
-  <% if (!account.maxplayer_user_id) { %>
-    <p class="empty">Esta cuenta no tiene Max Player.</p>
-  <% } else if (mpDevicesError) { %>
+  <% if (mpDevicesError) { %>
     <p class="empty"><%= mpDevicesError %></p>
   <% } else if (!mpDevices.length) { %>
     <p class="empty">Ningún dispositivo de Max Player.</p>
@@ -246,8 +279,8 @@
   </table>
   <% } %>
 </section>
+<% } %>
 
-<%- include('partials/welcome-modal') %>
 <script>
 (function () {
   var blob = document.getElementById('access-copy');
