@@ -546,13 +546,20 @@ function hasHotPlayer(account) {
   return !!(account && (account.hotplayer_mac || account.player_kind === 'hotplayer'));
 }
 
+// Solo lo que de verdad falta. Un aviso viejo no cuenta: reintentar no debe
+// volver a escribir una línea o una contraseña que ya están bien.
+function pendingParts(account) {
+  const parts = [];
+  if (account.has_emby && !account.emby_user_id) parts.push('Emby');
+  if (account.player_kind && !account.xui_line_id) parts.push('XUI');
+  if (account.player_kind === 'maxplayer' && !account.maxplayer_user_id) parts.push('Max Player');
+  else if (account.maxplayer_user_id && !account.maxplayer_list_ok) parts.push('lista de Max Player');
+  if (hasHotPlayer(account) && !account.hotplayer_ok) parts.push('HotPlayer');
+  return parts;
+}
+
 function needsWork(account) {
-  if (account.provision_error) return true;
-  if (account.has_emby && !account.emby_user_id) return true;
-  if (account.player_kind && !account.xui_line_id) return true;
-  if (account.player_kind === 'maxplayer' && (!account.maxplayer_user_id || !account.maxplayer_list_ok)) return true;
-  if (hasHotPlayer(account) && !account.hotplayer_ok) return true;
-  return false;
+  return pendingParts(account).length > 0;
 }
 
 function xuiPlaylistUrl(username, password) {
@@ -684,11 +691,37 @@ function partialMessage(made, want, err) {
   else if (want.playerKind === 'maxplayer') pending.push('Max Player');
   if (made.hotOk) done.push('HotPlayer');
   else if (want.hotplayer) pending.push('HotPlayer');
+  const failed = pending.join(' y ') || 'un servicio';
+  const ready = done.length ? `Ya está hecho: ${done.join(', ')}. ` : '';
   return (
-    `Cuenta guardada a medias: se creó ${done.join(' y ') || 'parte'}, ` +
-    `pero falló ${pending.join(' y ') || 'un servicio'} (${err.message}). ` +
-    'Los créditos de esta alta ya se descontaron. Pulsa Reintentar: no se vuelve a cobrar.'
+    `No se completó ${failed}: ${err.message}. ${ready}` +
+    'Pulsa Reintentar lo que falta: no se crea otra línea y no se vuelve a cobrar.'
   );
+}
+
+async function existingXuiLine(username) {
+  if (typeof X().findLineByUsername !== 'function') return null;
+  const found = await X().findLineByUsername(username);
+  if (!found || !found.id) return null;
+  return String(found.id);
+}
+
+// La línea ya existe en XUI (el alta anterior llegó, pero la respuesta se perdió).
+// Se reutiliza ese id y se deja la contraseña y la fecha que acaba de pedir el
+// revendedor. No se llama a create_line.
+async function claimExistingXuiLine(id, { username, password, expDate, maxConnections, bouquets }) {
+  const fields = {
+    username,
+    password,
+    exp_date: expDate,
+    max_connections: maxConnections,
+    enabled: 1,
+    admin_enabled: 1,
+  };
+  const packed = panelBouquets(bouquets);
+  if (packed) fields.bouquets_selected = packed;
+  await X().editLine(id, fields);
+  return String(id);
 }
 
 // Alta. services omitido = solo Emby, el comportamiento de siempre.
@@ -762,16 +795,27 @@ async function createAccount({ username, password, planId, owner, notes, service
       }
     }
     if (want.xui) {
-      const line = await X().createLine({
-        username,
-        password,
-        expDate: xuiExpiresAt,
-        maxConnections: lineConnections(plan, packageRow),
-        packageId: packageRow.id,
-        isTrial: !!packageRow.is_trial,
-        bouquets: parseBouquets(packageRow.bouquets),
-      });
-      made.xuiId = line.id;
+      const already = await existingXuiLine(username);
+      if (already) {
+        made.xuiId = await claimExistingXuiLine(already, {
+          username,
+          password,
+          expDate: xuiExpiresAt,
+          maxConnections: lineConnections(plan, packageRow),
+          bouquets: parseBouquets(packageRow.bouquets),
+        });
+      } else {
+        const line = await X().createLine({
+          username,
+          password,
+          expDate: xuiExpiresAt,
+          maxConnections: lineConnections(plan, packageRow),
+          packageId: packageRow.id,
+          isTrial: !!packageRow.is_trial,
+          bouquets: parseBouquets(packageRow.bouquets),
+        });
+        made.xuiId = line.id;
+      }
     }
     if (want.playerKind === 'maxplayer') {
       const created = await M().provisionUser({
@@ -957,8 +1001,8 @@ function saveProgress(accountId, fields) {
   db.prepare(`UPDATE emby_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 }
 
-// Reintenta lo que quedó a medias y vuelve a empujar la contraseña guardada.
-// No descuenta créditos.
+// Reintenta solo el servicio que no llegó a crearse. No reescribe lo que ya
+// funciona y no descuenta créditos.
 async function retryProvision({ accountId, actor }) {
   let account = loadOwned(accountId, actor);
   if (!needsWork(account)) throw new BusinessError('Esta cuenta no tiene nada pendiente');
@@ -990,22 +1034,31 @@ async function retryProvision({ accountId, actor }) {
   if (account.player_kind && !account.xui_line_id) {
     try {
       const packageRow = await loadPackage(account.xui_package_id);
-      const line = await X().createLine({
-        username: account.username,
-        password,
-        expDate: account.xui_expires_at || account.expires_at,
-        maxConnections: lineConnections(plan || { screens: 1 }, packageRow),
-        packageId: packageRow.id,
-        isTrial: !!packageRow.is_trial,
-        bouquets: parseBouquets(packageRow.bouquets),
-      });
+      const already = await existingXuiLine(account.username);
+      const lineId = already
+        ? await claimExistingXuiLine(already, {
+            username: account.username,
+            password,
+            expDate: account.xui_expires_at || account.expires_at,
+            maxConnections: lineConnections(plan || { screens: 1 }, packageRow),
+            bouquets: parseBouquets(packageRow.bouquets),
+          })
+        : (await X().createLine({
+            username: account.username,
+            password,
+            expDate: account.xui_expires_at || account.expires_at,
+            maxConnections: lineConnections(plan || { screens: 1 }, packageRow),
+            packageId: packageRow.id,
+            isTrial: !!packageRow.is_trial,
+            bouquets: parseBouquets(packageRow.bouquets),
+          })).id;
       saveProgress(account.id, {
-        xui_line_id: line.id,
+        xui_line_id: lineId,
         xui_package_id: packageRow.id,
         xui_package_name: packageRow.package_name,
         xui_bouquets: packageRow.bouquets || null,
       });
-      if (account.status === 'expired') await X().disableLine(line.id);
+      if (account.status === 'expired') await X().disableLine(lineId);
       account = loadOwned(account.id, actor);
     } catch (err) {
       errors.push(`XUI: ${err.message}`);
@@ -1014,15 +1067,28 @@ async function retryProvision({ accountId, actor }) {
 
   if (account.player_kind === 'maxplayer' && account.xui_line_id && !account.maxplayer_user_id) {
     try {
-      const created = await M().provisionUser({
-        username: account.username,
-        password,
-        iptvUser: account.username,
-        iptvPass: password,
-        domainId: config.maxplayerDomainId,
-      });
+      let userId = null;
+      if (typeof M().findUserId === 'function') {
+        userId = await M().findUserId(account.username);
+      }
+      if (userId) {
+        await M().attachPlaylist(userId, {
+          domainId: config.maxplayerDomainId,
+          iptvUsername: account.username,
+          iptvPassword: password,
+        });
+      } else {
+        const created = await M().provisionUser({
+          username: account.username,
+          password,
+          iptvUser: account.username,
+          iptvPass: password,
+          domainId: config.maxplayerDomainId,
+        });
+        userId = created.userId;
+      }
       saveProgress(account.id, {
-        maxplayer_user_id: created.userId,
+        maxplayer_user_id: userId,
         maxplayer_list_ok: 1,
         maxplayer_domain_id: config.maxplayerDomainId || null,
       });
@@ -1044,21 +1110,23 @@ async function retryProvision({ accountId, actor }) {
     }
   }
 
-  if (!password && hasHotPlayer(account) && !account.hotplayer_ok) {
-    errors.push('HotPlayer: no hay contraseña guardada para recargar la lista');
-  }
-
-  if (password) {
-    const pwErrors = await pushPassword(account, password);
-    errors.push(...pwErrors);
-    const progress = {};
-    if (!pwErrors.length && account.maxplayer_user_id) progress.maxplayer_list_ok = 1;
-    const hotOk = hotplayerOkAfter(account, pwErrors);
-    if (hotOk != null) progress.hotplayer_ok = hotOk;
-    if (Object.keys(progress).length) {
-      saveProgress(account.id, progress);
-      account = loadOwned(account.id, actor);
+  if (hasHotPlayer(account) && !account.hotplayer_ok && account.hotplayer_mac) {
+    if (!password) {
+      errors.push('HotPlayer: no hay contraseña guardada para recargar la lista');
+    } else {
+      try {
+        await H().addPlaylist(account.hotplayer_mac, {
+          username: account.username,
+          password,
+        });
+        saveProgress(account.id, { hotplayer_ok: 1 });
+        account = loadOwned(account.id, actor);
+      } catch (err) {
+        errors.push(`HotPlayer: ${err.message}`);
+      }
     }
+  } else if (hasHotPlayer(account) && !account.hotplayer_ok && !account.hotplayer_mac) {
+    errors.push('HotPlayer: falta la MAC');
   }
 
   const pending = errors.length
@@ -1640,13 +1708,28 @@ function expiryAfterXuiSync(account, xuiSql) {
   return pool.slice().sort()[future.length ? 0 : pool.length - 1];
 }
 
-async function adoptRemoteXuiExpiry(account) {
-  if (!account || !account.xui_line_id) return false;
+function xuiFlagOff(value) {
+  return value === false || value === 0 || value === '0' || String(value).toLowerCase() === 'false' || String(value).toLowerCase() === 'no';
+}
+
+function xuiLineEnabled(row) {
+  if (!row || typeof row !== 'object') return true;
+  if (xuiFlagOff(row.enabled) || xuiFlagOff(row.admin_enabled)) return false;
+  return true;
+}
+
+// Lee get_line. Si la fecha es futura (o no hay fecha) y la línea está activa,
+// el panel adopta esa fecha y deja de tenerla cortada. Si XUI la tiene parada
+// con fecha futura, se reactiva con edit_line completo (enabled y admin_enabled)
+// y después se adopta. Una fecha pasada no se toca: el llamador puede cortarla.
+// apply=false solo informa, no escribe ni en XUI ni en el panel.
+async function reconcileAccountXui(account, { apply = true } = {}) {
+  if (!account || !account.xui_line_id) return { action: 'skip' };
   let raw;
   try {
     raw = await X().getLine(account.xui_line_id);
   } catch (err) {
-    throw new Error(`XUI: no se pudo leer la línea ${account.xui_line_id} antes de caducarla (${err.message})`);
+    throw new Error(`XUI: no se pudo leer la línea ${account.xui_line_id} (${err.message})`);
   }
   const row = Array.isArray(raw) ? raw[0] : raw;
   if (!row || typeof row !== 'object') {
@@ -1659,15 +1742,49 @@ async function adoptRemoteXuiExpiry(account) {
   }
   const exp = row.exp_date != null ? row.exp_date : row.expdate;
   const date = parseExpToDate(exp);
+  const unlimited = !date;
   const future = !!(date && date.getTime() > Date.now());
-  if (date && !future) return false;
-  const xuiSql = future ? toSqlDate(date) : null;
+  const enabled = xuiLineEnabled(row);
+  const base = {
+    username: account.username,
+    lineId: String(account.xui_line_id),
+    enabled,
+    xuiExpiresAt: future ? toSqlDate(date) : null,
+  };
+  if (date && !future) return Object.assign(base, { action: 'past' });
+  const action = enabled ? 'adopt' : 'enable';
+  if (!apply) return Object.assign(base, { action, applied: false });
+  if (!enabled) {
+    await X().editLine(account.xui_line_id, { enabled: 1, admin_enabled: 1 });
+  }
+  const xuiSql = unlimited ? null : toSqlDate(date);
   db.prepare(
     `UPDATE emby_accounts
      SET xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active'
      WHERE id = ?`
   ).run(xuiSql, expiryAfterXuiSync(account, xuiSql), account.id);
-  return true;
+  return Object.assign(base, { action, applied: true, xuiExpiresAt: xuiSql });
+}
+
+async function adoptRemoteXuiExpiry(account) {
+  const result = await reconcileAccountXui(account, { apply: true });
+  return result.action === 'adopt' || result.action === 'enable';
+}
+
+function driftedXuiAccounts() {
+  return db
+    .prepare(
+      `SELECT * FROM emby_accounts
+       WHERE status != 'deleted' AND xui_line_id IS NOT NULL
+         AND (xui_cut = 1 OR status = 'expired')`
+    )
+    .all();
+}
+
+function xuiNeedsRemoteCheck(account) {
+  if (!account || !account.xui_line_id) return false;
+  if (account.xui_cut || account.status === 'expired') return true;
+  return !!(account.xui_expires_at && account.xui_expires_at <= toSqlDate(new Date()));
 }
 
 // Caducidad. Max Player no tiene un "desactivar": se corta la línea XUI
@@ -2059,7 +2176,16 @@ async function addService({ accountId, actor, service, planId, packageId, player
     throw new BusinessError(`Créditos insuficientes: XUI cuesta ${quoted.cost} y tienes ${actor.credits}`);
   }
   const xuiExpiry = expiryFromDays(xuiDays);
-  const line = await X().createLine({
+  const already = await existingXuiLine(account.username);
+  const line = already
+    ? { id: await claimExistingXuiLine(already, {
+        username: account.username,
+        password,
+        expDate: xuiExpiry,
+        maxConnections: lineConnections(pricingPlan, packageRow),
+        bouquets: parseBouquets(packageRow.bouquets),
+      }) }
+    : await X().createLine({
     username: account.username,
     password,
     expDate: xuiExpiry,
@@ -2188,7 +2314,27 @@ async function listMaxPlayerDevices(userId) {
 }
 
 async function detailPayload(accountId, actor) {
-  const account = loadDetail(accountId, actor);
+  let account = loadDetail(accountId, actor);
+  let xuiSyncNote = null;
+  if (xuiNeedsRemoteCheck(account) && X().isConfigured()) {
+    try {
+      const result = await reconcileAccountXui(account, { apply: true });
+      if (result.action === 'adopt' || result.action === 'enable') {
+        account = loadDetail(accountId, actor);
+        xuiSyncNote = result.action === 'enable'
+          ? 'XUI tenía la línea parada con fecha futura. Se ha reactivado y el panel ha tomado esa fecha.'
+          : 'XUI tiene una fecha posterior. El panel la ha adoptado y la cuenta queda activa.';
+      }
+    } catch (err) {
+      xuiSyncNote = `No se pudo leer la línea en XUI: ${err.message}`;
+    }
+  }
+  let access = null;
+  try {
+    access = connectionCard(accountId, actor);
+  } catch (err) {
+    access = null;
+  }
   let embyDevices = [];
   let embyDevicesError = null;
   let mpDevices = [];
@@ -2207,7 +2353,16 @@ async function detailPayload(accountId, actor) {
       mpDevicesError = err.message;
     }
   }
-  return { account, embyDevices, embyDevicesError, mpDevices, mpDevicesError };
+  return {
+    account,
+    embyDevices,
+    embyDevicesError,
+    mpDevices,
+    mpDevicesError,
+    xuiSyncNote,
+    pending: pendingParts(account),
+    access,
+  };
 }
 
 function loadDetail(accountId, actor) {
@@ -2267,6 +2422,9 @@ module.exports = {
   restoredPolicyPatch,
   expireRemotes,
   adoptRemoteXuiExpiry,
+  reconcileAccountXui,
+  driftedXuiAccounts,
+  pendingParts,
   restoreRemotes,
   extendService,
   addService,

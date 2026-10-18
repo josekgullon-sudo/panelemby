@@ -1,5 +1,9 @@
-// Proceso de caducidades. Tres pasadas, en cada sistema donde la cuenta exista:
-//   1. Cada servicio vencido se corta solo. La cuenta pasa a 'expired' cuando todos lo están.
+// Proceso de caducidades. En cada sistema donde la cuenta exista:
+//   1. Cada servicio vencido se corta solo. Antes, get_line: si XUI tiene fecha
+//      futura se adopta y no se corta.
+//   1b. Las ya cortadas o caducadas también se leen. Fecha futura y línea activa:
+//       se adopta. Línea parada con fecha futura: edit_line completo y se adopta.
+//       Este paso no borra.
 //   2. Un servicio con fecha futura se reactiva; el que sigue cortado no se toca.
 //   3. 'expired' desde hace más de DELETE_AFTER_DAYS días (fecha más tardía) -> borrar (si > 0)
 // Max Player no tiene "desactivar": al caducar se corta la línea XUI, que es la lista.
@@ -9,7 +13,7 @@
 const cron = require('node-cron');
 const config = require('../config');
 const db = require('../db/database');
-const { deleteEverywhere, expireRemotes, restoreRemotes, clockFrom, adoptRemoteXuiExpiry } = require('../services/accounts');
+const { deleteEverywhere, expireRemotes, restoreRemotes, clockFrom, adoptRemoteXuiExpiry, driftedXuiAccounts } = require('../services/accounts');
 
 function utcNowSql() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -69,6 +73,19 @@ async function run() {
     } catch (err) {
       errors++;
       console.error(`[expiry] No se pudo desactivar ${account.username}: ${err.message}`);
+    }
+  }
+
+  // 1b) Cuentas que el panel ya cortó o marcó caducadas. get_line puede traer
+  // una renovación hecha en XUI. Este paso no borra: el borrado es el paso 3
+  // y solo corre si DELETE_AFTER_DAYS es mayor que 0.
+  const drifted = driftedXuiAccounts();
+  for (const account of drifted) {
+    try {
+      if (await adoptRemoteXuiExpiry(account)) synced += 1;
+    } catch (err) {
+      errors++;
+      console.error(`[expiry] No se pudo leer XUI de ${account.username}: ${err.message}`);
     }
   }
 

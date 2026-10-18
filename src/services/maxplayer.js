@@ -391,5 +391,6 @@ module.exports = {
   setRetryWait,
   setDeviceLimit,
   attachPlaylist,
+  findUserId,
   provisionUser,
 };

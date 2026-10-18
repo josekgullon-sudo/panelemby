@@ -402,13 +402,181 @@ test('si Max Player falla, la línea XUI queda guardada y el reintento no vuelve
   assert.equal(row.emby_user_id, 'e-a.medias');
   assert.equal(row.maxplayer_user_id, null);
 
-  install();
+  const calls = install();
   const again = await accounts.retryProvision({ accountId: created.id, actor: actor() });
   assert.equal(again.provisionError, null);
   assert.equal(creditsOf(reseller.id), beforeCredits - (1 + 2 + 3));
   row = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
   assert.ok(row.maxplayer_user_id);
   assert.equal(row.provision_error, null);
+  assert.equal(calls.some((c) => c[0] === 'xui.create' || c[0] === 'xui.edit' || c[0] === 'emby.create'), false);
+  assert.equal(calls.some((c) => c[0] === 'mp.create'), true);
+});
+
+test('reintentar Max Player engancha el usuario ya creado y no abre otro', async () => {
+  install({
+    maxplayer: {
+      provisionUser: async () => {
+        const err = new Error('cupo agotado');
+        err.status = 500;
+        throw err;
+      },
+    },
+  });
+  const created = await accounts.createAccount({
+    username: 'mp.engancha',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: true, xui: true, playerKind: 'maxplayer', packageId: '7' },
+  });
+  const calls = install({
+    maxplayer: {
+      findUserId: async (name) => {
+        calls.push(['mp.find', name]);
+        return 'mp-viejo';
+      },
+      provisionUser: async () => {
+        throw new Error('no debía crear otro usuario');
+      },
+    },
+  });
+  const again = await accounts.retryProvision({ accountId: created.id, actor: actor() });
+  assert.equal(again.provisionError, null);
+  assert.equal(calls.some((c) => c[0] === 'mp.create'), false);
+  assert.equal(calls.some((c) => c[0] === 'mp.list'), true);
+  assert.equal(calls.some((c) => c[0] === 'xui.create' || c[0] === 'xui.edit' || c[0] === 'emby.create'), false);
+  const row = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.maxplayer_user_id, 'mp-viejo');
+  assert.equal(row.maxplayer_list_ok, 1);
+});
+
+test('si la línea XUI ya existe, el alta la reutiliza y no crea otra', async () => {
+  const calls = install({
+    xui: {
+      findLineByUsername: async (name) => ({ id: 'line-ya', username: name }),
+    },
+  });
+  const beforeCredits = creditsOf(reseller.id);
+  const created = await accounts.createAccount({
+    username: 'ya.existe',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: '7' },
+  });
+  assert.equal(created.provisionError, null);
+  assert.equal(creditsOf(reseller.id), beforeCredits - 2);
+  const row = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.equal(row.xui_line_id, 'line-ya');
+  assert.equal(calls.some((c) => c[0] === 'xui.create'), false);
+  const edit = calls.find((c) => c[0] === 'xui.edit');
+  assert.ok(edit);
+  assert.equal(edit[1], 'line-ya');
+  assert.equal(edit[2].password, 'clave');
+  assert.equal(edit[2].enabled, 1);
+  assert.equal(edit[2].admin_enabled, 1);
+});
+
+test('un aviso viejo no ofrece reintento si la cuenta ya está completa', async () => {
+  const created = await accounts.createAccount({
+    username: 'aviso.viejo',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: true, xui: false },
+  });
+  db.prepare("UPDATE emby_accounts SET provision_error = 'fallo al borrar' WHERE id = ?").run(created.id);
+  const row = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(created.id);
+  assert.deepEqual(accounts.pendingParts(row), []);
+  await assert.rejects(
+    () => accounts.retryProvision({ accountId: created.id, actor: actor() }),
+    /nada pendiente/
+  );
+});
+
+test('la ficha muestra la contraseña en claro dentro del mensaje de bienvenida', async () => {
+  const created = await accounts.createAccount({
+    username: 'clave.visible',
+    password: 'secreta',
+    planId: plan.id,
+    owner: actor(),
+    services: { emby: false, xui: true, playerKind: 'totalflix', packageId: '7' },
+  });
+  const card = accounts.connectionCard(created.id, actor());
+  assert.equal(card.username, 'clave.visible');
+  assert.equal(card.password, 'secreta');
+  assert.match(card.message, /Usuario: clave\.visible/);
+  assert.match(card.message, /Contraseña: secreta/);
+  assert.equal(card.message.includes('&amp;'), false);
+  await assert.rejects(
+    async () => accounts.connectionCard(created.id, { id: reseller.id + 99, role: 'reseller' }),
+    /no es tuya/
+  );
+});
+
+test('get_line con fecha futura reactiva la cuenta cortada y el modo prueba no escribe', async () => {
+  const { parseExpToDate } = require('../src/services/xui');
+  const calls = install({
+    xui: {
+      getLine: async (id) => {
+        calls.push(['xui.get', id]);
+        if (id === 'line-off') {
+          return { exp_date: '2099-04-01 10:00', enabled: '0', username: 'sync.off' };
+        }
+        if (id === 'line-old') {
+          return { exp_date: '2020-05-01 00:00', enabled: '1', username: 'sync.old' };
+        }
+        return { exp_date: '2099-03-01 10:00', enabled: '1', admin_enabled: '1', username: 'sync.ok' };
+      },
+    },
+  });
+  async function seed(username, lineId) {
+    const created = await accounts.createAccount({
+      username,
+      password: 'clave',
+      planId: plan.id,
+      owner: actor(),
+      services: { emby: false, xui: true, playerKind: 'totalflix', packageId: '7' },
+    });
+    db.prepare(
+      `UPDATE emby_accounts SET xui_line_id = ?, status = 'expired', xui_cut = 1, xui_expires_at = ?, expires_at = ? WHERE id = ?`
+    ).run(lineId, '2020-01-01 00:00:00', '2020-01-01 00:00:00', created.id);
+    return created.id;
+  }
+  const okId = await seed('sync.ok', 'line-ok');
+  const offId = await seed('sync.off', 'line-off');
+  const oldId = await seed('sync.old', 'line-old');
+
+  const okRow = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(okId);
+  const dry = await accounts.reconcileAccountXui(okRow, { apply: false });
+  assert.equal(dry.action, 'adopt');
+  assert.equal(dry.applied, false);
+  assert.equal(db.prepare('SELECT status FROM emby_accounts WHERE id = ?').get(okId).status, 'expired');
+
+  const applied = await accounts.reconcileAccountXui(okRow, { apply: true });
+  assert.equal(applied.action, 'adopt');
+  const okAfter = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(okId);
+  assert.equal(okAfter.status, 'active');
+  assert.equal(okAfter.xui_cut, 0);
+  assert.equal(okAfter.xui_expires_at, accounts.toSqlDate(parseExpToDate('2099-03-01 10:00')));
+
+  const detail = await accounts.detailPayload(offId, actor());
+  assert.equal(detail.account.status, 'active');
+  assert.match(detail.xuiSyncNote, /reactiv/);
+  const offEdit = calls.find((c) => c[0] === 'xui.edit' && c[1] === 'line-off');
+  assert.ok(offEdit);
+  assert.equal(offEdit[2].enabled, 1);
+  assert.equal(offEdit[2].admin_enabled, 1);
+  const offAfter = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(offId);
+  assert.equal(offAfter.status, 'active');
+  assert.equal(offAfter.xui_cut, 0);
+
+  const oldRow = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(oldId);
+  const past = await accounts.reconcileAccountXui(oldRow, { apply: true });
+  assert.equal(past.action, 'past');
+  assert.equal(calls.some((c) => c[0] === 'xui.edit' && c[1] === 'line-old'), false);
+  assert.equal(db.prepare('SELECT status, xui_cut FROM emby_accounts WHERE id = ?').get(oldId).status, 'expired');
 });
 
 test('sin ningún servicio no se cobra ni se crea nada', async () => {
@@ -726,7 +894,8 @@ test('un usuario repetido en XUI no modifica la cuenta', async () => {
     xui: {
       findLineByUsername: async (name) => {
         calls.push(['xui.find', name]);
-        return { id: 'otra-linea', username: name };
+        if (String(name).toLowerCase() === 'choca') return { id: 'otra-linea', username: name };
+        return null;
       },
     },
   });
