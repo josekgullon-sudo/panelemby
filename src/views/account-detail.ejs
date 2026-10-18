@@ -35,8 +35,50 @@
     <% } %>
     <% if (account.notes) { %><div><dt>Notas</dt><dd><%= account.notes %></dd></div><% } %>
     <% if (account.provision_error) { %><div><dt>Aviso</dt><dd class="td-warn"><%= account.provision_error %></dd></div><% } %>
+    <% if (xuiSyncNote) { %><div><dt>XUI</dt><dd class="td-warn"><%= xuiSyncNote %></dd></div><% } %>
   </dl>
 </section>
+
+<% if (access) { %>
+<section class="panel" id="datos-acceso">
+  <div class="panel-head"><h2>Datos para el cliente</h2></div>
+  <div class="copy-grid">
+    <div class="copy-line">
+      <span class="copy-label">Usuario</span>
+      <code class="copy-value"><%= access.username %></code>
+      <button type="button" class="btn btn-sm" data-copy="username">Copiar</button>
+    </div>
+    <div class="copy-line">
+      <span class="copy-label">Contraseña</span>
+      <% if (access.password) { %>
+        <code class="copy-value"><%= access.password %></code>
+        <button type="button" class="btn btn-sm" data-copy="password">Copiar</button>
+      <% } else { %>
+        <span class="td-dim">No está guardada. Pon una nueva en Editar.</span>
+      <% } %>
+    </div>
+    <div class="copy-line">
+      <button type="button" class="btn btn-primary btn-sm" data-copy="message">Copiar mensaje de bienvenida</button>
+    </div>
+  </div>
+  <script type="application/json" id="access-copy"><%- JSON.stringify({ username: access.username, password: access.password || '', message: access.message || '' }).replace(/</g, '\\u003c') %></script>
+</section>
+<% } %>
+
+<% if (pending && pending.length) { %>
+<section class="panel" id="pendiente">
+  <div class="panel-head"><h2>Falta por terminar</h2></div>
+  <p class="hint hint-warn"><%= account.provision_error || ('Pendiente: ' + pending.join(', ') + '.') %></p>
+  <ul class="pending-list">
+    <% pending.forEach(function (part) { %><li><%= part %></li><% }) %>
+  </ul>
+  <form method="post" action="<%= base %>/<%= account.id %>/reintentar">
+    <input type="hidden" name="next" value="ficha">
+    <button class="btn btn-primary">Reintentar lo que falta</button>
+  </form>
+  <p class="hint">Solo se reintenta esa parte. No se crea otra línea y no se cobran créditos otra vez.</p>
+</section>
+<% } %>
 
 <section class="panel" id="editar">
   <div class="panel-head"><h2>Editar</h2></div>
@@ -206,6 +248,42 @@
 </section>
 
 <%- include('partials/welcome-modal') %>
+<script>
+(function () {
+  var blob = document.getElementById('access-copy');
+  if (!blob) return;
+  var data = JSON.parse(blob.textContent);
+  function mark(btn) {
+    var previous = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(function () { btn.textContent = previous; }, 1600);
+  }
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-copy');
+      var text = data[key] || '';
+      if (!text) return;
+      function fallback() {
+        var area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.left = '-9999px';
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand('copy'); } catch (err) { /* el navegador no copió */ }
+        document.body.removeChild(area);
+        mark(btn);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { mark(btn); }, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
+})();
+</script>
 <script>
 (function () {
   function bind(selectId, previewId) {

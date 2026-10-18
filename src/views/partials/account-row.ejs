@@ -1,5 +1,5 @@
 <% const d = daysLeft(a.expires_at); %>
-<% const needsRetry = !!(a.provision_error || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.has_emby && !a.emby_user_id) || ((a.hotplayer_mac || a.player_kind === 'hotplayer') && !a.hotplayer_ok)); %>
+<% const needsRetry = !!((a.has_emby && !a.emby_user_id) || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.maxplayer_user_id && !a.maxplayer_list_ok) || ((a.hotplayer_mac || a.player_kind === 'hotplayer') && !a.hotplayer_ok)); %>
 <tr>
   <td class="td-strong td-account">
     <a class="account-name" href="<%= actionBase %>/<%= a.id %>"><%= a.username %></a>

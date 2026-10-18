@@ -442,13 +442,15 @@ router.post(
         actor: req.user,
       });
       if (result.provisionError) req.setFlash('error', result.provisionError);
-      else req.setFlash('ok', 'Servicios pendientes creados');
+      else req.setFlash('ok', 'Lo que faltaba ya está creado. No se ha cobrado otra vez.');
       const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
       card.mode = 'resend';
       req.session.newAccount = card;
-      res.redirect('/admin/cuentas');
+      const back = req.body.next === 'ficha' ? `/admin/cuentas/${req.params.id}` : '/admin/cuentas';
+      res.redirect(back);
     } catch (err) {
-      backWithError(req, res, err, '/admin/cuentas');
+      const back = req.body.next === 'ficha' ? `/admin/cuentas/${req.params.id}` : '/admin/cuentas';
+      backWithError(req, res, err, back);
     }
   })
 );

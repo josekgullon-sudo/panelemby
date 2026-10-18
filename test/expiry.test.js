@@ -59,6 +59,17 @@ db.prepare(
      has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
    ) VALUES ('ciega', ?, ?, ?, ?, 'active', 0, 'line-ciega', 'totalflix', ?, 0, 0)`
 ).run(hash, owner.id, plan.id, ciegaAt, ciegaAt);
+function insertCut(username, lineId, at) {
+  db.prepare(
+    `INSERT INTO emby_accounts (
+       username, password_hash, owner_id, plan_id, expires_at, status,
+       has_emby, xui_line_id, player_kind, xui_expires_at, xui_cut, emby_cut
+     ) VALUES (?, ?, ?, ?, ?, 'expired', 0, ?, 'totalflix', ?, 1, 0)`
+  ).run(username, hash, owner.id, plan.id, at, lineId, at);
+}
+insertCut('cortada.viva', 'line-viva-futura', sqlDays(-3));
+insertCut('cortada.parada', 'line-parada', sqlDays(-3));
+insertCut('cortada.pasada', 'line-pasada', sqlDays(-1));
 
 const calls = [];
 accounts.setIntegrations({
@@ -72,8 +83,12 @@ accounts.setIntegrations({
       if (id === 'line-renovada') return { exp_date: '2099-06-01 12:00', username: 'renovada' };
       if (id === 'line-ilimitada') return { exp_date: null, username: 'ilimitada' };
       if (id === 'line-ciega') throw new Error('timeout');
+      if (id === 'line-viva-futura') return { exp_date: '2099-08-01 12:00', enabled: '1', username: 'cortada.viva' };
+      if (id === 'line-parada') return { exp_date: '2099-09-01 12:00', enabled: '0', username: 'cortada.parada' };
+      if (id === 'line-pasada') return { exp_date: '2020-01-01 00:00', enabled: '0', username: 'cortada.pasada' };
       return { exp_date: '2020-01-01 00:00', username: id };
     },
+    editLine: async (id, fields) => calls.push(['xui.edit', id, fields]),
     disableLine: async (id) => calls.push(['xui.off', id]),
     deleteLine: async (id) => calls.push(['xui.del', id]),
   },
@@ -140,4 +155,25 @@ test('cada servicio caduca solo y el borrado espera a la fecha más tardía', as
   assert.equal(ciega.xui_expires_at, ciegaAt);
   assert.equal(ciega.expires_at, ciegaAt);
   assert.equal(calls.some((c) => c[0] === 'xui.off' && c[1] === 'line-ciega'), false);
+
+  const cortadaViva = db.prepare("SELECT * FROM emby_accounts WHERE username = 'cortada.viva'").get();
+  const vivaAt = accounts.toSqlDate(require('../src/services/xui').parseExpToDate('2099-08-01 12:00'));
+  assert.equal(cortadaViva.status, 'active');
+  assert.equal(cortadaViva.xui_cut, 0);
+  assert.equal(cortadaViva.xui_expires_at, vivaAt);
+  assert.equal(calls.some((c) => c[0] === 'xui.edit' && c[1] === 'line-viva-futura'), false);
+  assert.equal(calls.some((c) => c[0] === 'xui.get' && c[1] === 'line-viva-futura'), true);
+
+  const parada = db.prepare("SELECT * FROM emby_accounts WHERE username = 'cortada.parada'").get();
+  const paradaEdit = calls.find((c) => c[0] === 'xui.edit' && c[1] === 'line-parada');
+  assert.ok(paradaEdit);
+  assert.equal(paradaEdit[2].enabled, 1);
+  assert.equal(paradaEdit[2].admin_enabled, 1);
+  assert.equal(parada.status, 'active');
+  assert.equal(parada.xui_cut, 0);
+
+  const pasada = db.prepare("SELECT * FROM emby_accounts WHERE username = 'cortada.pasada'").get();
+  assert.equal(pasada.status, 'expired');
+  assert.equal(pasada.xui_cut, 1);
+  assert.equal(calls.some((c) => c[0] === 'xui.edit' && c[1] === 'line-pasada'), false);
 });
