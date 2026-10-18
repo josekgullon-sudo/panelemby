@@ -19,7 +19,8 @@
     "test-emby": "node scripts/test-emby.js",
     "test-xui": "node scripts/test-xui.js",
     "test-maxplayer": "node scripts/test-maxplayer.js",
-    "test-hotplayer": "node scripts/test-hotplayer.js"
+    "test-hotplayer": "node scripts/test-hotplayer.js",
+    "revisar-xui": "node scripts/revisar-xui-desfasadas.js"
   },
   "engines": {
     "node": ">=18"

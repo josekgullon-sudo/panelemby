@@ -998,6 +998,11 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .create-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .cost-line { margin: 0; color: var(--text-dim); font-size: 13px; }
 .hint-warn { color: var(--amber); }
+.copy-grid { display: flex; flex-direction: column; gap: 10px; }
+.copy-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.copy-label { min-width: 7.5rem; color: var(--text-dim); font-size: 13px; }
+.copy-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+.pending-list { margin: 0 0 12px; padding-left: 18px; }
 
 .svc-badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .svc-with-sub { display: inline-flex; align-items: baseline; gap: 6px; }
