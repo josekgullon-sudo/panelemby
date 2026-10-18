@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     maxplayer_user_id   TEXT,
     maxplayer_list_ok   INTEGER NOT NULL DEFAULT 0,
     maxplayer_domain_id TEXT,
+    hotplayer_mac       TEXT,
+    hotplayer_ok        INTEGER NOT NULL DEFAULT 0,
     provision_error     TEXT,
     emby_expires_at     TEXT,
     xui_expires_at      TEXT,

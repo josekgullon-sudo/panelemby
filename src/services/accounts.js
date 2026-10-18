@@ -3,7 +3,8 @@
 // transacción SQLite. Las llamadas externas van antes. Si la BD falla tras
 // crear algo fuera, se compensa. Si un servicio posterior falla (XUI creado
 // y Max Player no), la fila se guarda con el id que sí existe y un error
-// para poder reintentar sin volver a cobrar.
+// para poder reintentar sin volver a cobrar. HotPlayer solo carga la lista
+// en la MAC del cliente: no se activa ni se borra desde aquí.
 
 const bcrypt = require('bcryptjs');
 const config = require('../config');
@@ -11,7 +12,7 @@ const db = require('../db/database');
 const secret = require('./secret');
 const { formatExpDate, parseExpToDate } = require('./xui');
 
-const integrations = { emby: null, xui: null, maxplayer: null };
+const integrations = { emby: null, xui: null, maxplayer: null, hotplayer: null };
 
 function E() {
   return integrations.emby || require('./emby');
@@ -22,12 +23,16 @@ function X() {
 function M() {
   return integrations.maxplayer || require('./maxplayer');
 }
+function H() {
+  return integrations.hotplayer || require('./hotplayer');
+}
 
 function setIntegrations(next) {
   if (!next) return;
   if (Object.prototype.hasOwnProperty.call(next, 'emby')) integrations.emby = next.emby;
   if (Object.prototype.hasOwnProperty.call(next, 'xui')) integrations.xui = next.xui;
   if (Object.prototype.hasOwnProperty.call(next, 'maxplayer')) integrations.maxplayer = next.maxplayer;
+  if (Object.prototype.hasOwnProperty.call(next, 'hotplayer')) integrations.hotplayer = next.hotplayer;
 }
 
 class BusinessError extends Error {
@@ -38,7 +43,7 @@ class BusinessError extends Error {
 }
 
 function isUserFacingError(err) {
-  return !!err && ['BusinessError', 'EmbyError', 'XuiError', 'MaxPlayerError'].includes(err.name);
+  return !!err && ['BusinessError', 'EmbyError', 'XuiError', 'MaxPlayerError', 'HotPlayerError'].includes(err.name);
 }
 
 // --- Fechas (se guardan como ISO UTC 'YYYY-MM-DD HH:MM:SS', igual que datetime('now')) ---
@@ -198,16 +203,70 @@ async function removeDevice({ account, deviceId }) {
 
 // --- Servicios, paquetes y precio ---
 
+function flagOn(value) {
+  return value === '1' || value === 'on' || value === true || value === 'true';
+}
+
+// XUI siempre es la línea. Max Player y HotPlayer son destinos de la app
+// y pueden ir los dos a la vez. Sin ninguno, la línea queda en TotalFlix.
 function parseServices(body) {
-  const emby = body.service_emby === '1' || body.service_emby === 'on' || body.service_emby === true;
-  const xui = body.service_xui === '1' || body.service_xui === 'on' || body.service_xui === true;
-  const playerKind = body.player_kind === 'maxplayer' ? 'maxplayer' : 'totalflix';
+  const source = body || {};
+  const emby = flagOn(source.service_emby);
+  const xui = flagOn(source.service_xui);
+  const maxplayer = flagOn(source.dest_maxplayer) || source.player_kind === 'maxplayer';
+  const hotplayer = flagOn(source.dest_hotplayer) || source.player_kind === 'hotplayer';
+  let playerKind = null;
+  if (xui) {
+    if (maxplayer) playerKind = 'maxplayer';
+    else if (hotplayer) playerKind = 'hotplayer';
+    else playerKind = 'totalflix';
+  }
   return {
     emby,
     xui,
-    playerKind: xui ? playerKind : null,
-    packageId: String(body.xui_package_id || '').trim(),
+    playerKind,
+    hotplayer: !!(xui && hotplayer),
+    mac: String(source.hotplayer_mac || '').trim(),
+    packageId: String(source.xui_package_id || '').trim(),
   };
+}
+
+function wantFromServices(services) {
+  if (!services) {
+    return { emby: true, xui: false, playerKind: null, hotplayer: false, mac: '', packageId: '' };
+  }
+  const xui = !!services.xui;
+  const hotplayer = !!(xui && (services.hotplayer || services.playerKind === 'hotplayer'));
+  const maxplayer = !!(xui && services.playerKind === 'maxplayer');
+  let playerKind = null;
+  if (xui) {
+    if (maxplayer) playerKind = 'maxplayer';
+    else if (hotplayer) playerKind = 'hotplayer';
+    else playerKind = 'totalflix';
+  }
+  return {
+    emby: !!services.emby,
+    xui,
+    playerKind,
+    hotplayer,
+    mac: String(services.mac || '').trim(),
+    packageId: services.packageId || '',
+  };
+}
+
+function requireHotMac(mac) {
+  const normalized = H().normalizeMac(mac);
+  if (!normalized) {
+    throw new BusinessError('La MAC de HotPlayer es obligatoria. Usa el formato XX:XX:XX:XX:XX:XX.');
+  }
+  return normalized;
+}
+
+function assertHotReady(mac) {
+  if (!H().isConfigured()) {
+    throw new BusinessError('HotPlayer no está configurado. Revisa HOTPLAYER_API_KEY.');
+  }
+  return requireHotMac(mac);
 }
 
 function xuiCredit(plan, packageRow) {
@@ -408,18 +467,19 @@ async function refreshXuiPackages() {
 async function packagesForForm() {
   const xuiConfigured = X().isConfigured();
   const maxplayerConfigured = M().isConfigured();
+  const hotplayerConfigured = H().isConfigured();
   if (!xuiConfigured) {
-    return { packages: cachedXuiPackages(), notice: null, xuiConfigured, maxplayerConfigured };
+    return { packages: cachedXuiPackages(), notice: null, xuiConfigured, maxplayerConfigured, hotplayerConfigured };
   }
   try {
     const packages = await refreshXuiPackages();
-    return { packages, notice: null, xuiConfigured, maxplayerConfigured };
+    return { packages, notice: null, xuiConfigured, maxplayerConfigured, hotplayerConfigured };
   } catch (err) {
     const packages = cachedXuiPackages();
     const notice = packages.length
       ? 'No se pudo actualizar la lista de paquetes XUI. Se muestra la última copia guardada.'
       : `No se pudieron cargar los paquetes XUI: ${err.message}`;
-    return { packages, notice, xuiConfigured, maxplayerConfigured };
+    return { packages, notice, xuiConfigured, maxplayerConfigured, hotplayerConfigured };
   }
 }
 
@@ -482,11 +542,16 @@ function loadOwned(accountId, actor) {
   return account;
 }
 
+function hasHotPlayer(account) {
+  return !!(account && (account.hotplayer_mac || account.player_kind === 'hotplayer'));
+}
+
 function needsWork(account) {
   if (account.provision_error) return true;
   if (account.has_emby && !account.emby_user_id) return true;
   if (account.player_kind && !account.xui_line_id) return true;
   if (account.player_kind === 'maxplayer' && (!account.maxplayer_user_id || !account.maxplayer_list_ok)) return true;
+  if (hasHotPlayer(account) && !account.hotplayer_ok) return true;
   return false;
 }
 
@@ -533,12 +598,27 @@ function buildWelcomeMessage(card) {
     if (both) lines.push(`📅 Vence: ${formatClientDate(card.embyExpiresAt || card.expiresAt)}`);
     lines.push('');
   }
-  if (card.hasXui) {
-    lines.push('📡 TOTALFLIX');
-    lines.push(`Usuario: ${card.username}`);
-    lines.push(`Contraseña: ${password}`);
-    lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
-    lines.push('');
+  const isMax = !!(card.hasMaxPlayer || card.playerKind === 'maxplayer');
+  const isHot = !!(card.hasHotPlayer || card.playerKind === 'hotplayer');
+  if (card.hasXui || card.playerKind) {
+    if (isHot && !isMax) {
+      lines.push('📺 HotPlayer');
+      lines.push('La lista ya está cargada en tu tele.');
+      lines.push('Abre la app HotPlayer y reproduce. No hace falta usuario ni contraseña.');
+      lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
+      lines.push('');
+    } else {
+      lines.push('📡 TOTALFLIX');
+      lines.push(`Usuario: ${card.username}`);
+      lines.push(`Contraseña: ${password}`);
+      lines.push(`📅 Vence: ${formatClientDate(card.xuiExpiresAt || card.expiresAt, true)}`);
+      lines.push('');
+      if (isHot) {
+        lines.push('📺 HotPlayer');
+        lines.push('La lista también está cargada en tu tele. Abre la app HotPlayer.');
+        lines.push('');
+      }
+    }
   }
   if (card.plan) lines.push(`📦 Plan: ${card.plan}`);
   if (card.hasEmby && !card.hasXui) lines.push(`📅 Vence: ${formatClientDate(card.embyExpiresAt || card.expiresAt)}`);
@@ -570,6 +650,8 @@ function connectionCard(accountId, actor) {
     hasEmby: !!account.emby_user_id,
     hasXui: !!account.xui_line_id,
     hasMaxPlayer: !!account.maxplayer_user_id,
+    hasHotPlayer: hasHotPlayer(account),
+    hotplayerMac: account.hotplayer_mac || '',
     playerKind: account.player_kind,
     packageName: account.xui_package_name,
     xuiPublicUrl: config.xuiPublicUrl || '',
@@ -588,6 +670,7 @@ async function compensate(made) {
   if (made.mpId) await M().deleteUser(made.mpId).catch(() => {});
   if (made.xuiId) await X().deleteLine(made.xuiId).catch(() => {});
   if (made.embyId) await E().deleteUser(made.embyId).catch(() => {});
+  // La lista de HotPlayer no se deshace: no usamos /delete-playlists.
 }
 
 function partialMessage(made, want, err) {
@@ -599,6 +682,8 @@ function partialMessage(made, want, err) {
   else if (want.xui) pending.push('XUI');
   if (made.mpId) done.push('Max Player');
   else if (want.playerKind === 'maxplayer') pending.push('Max Player');
+  if (made.hotOk) done.push('HotPlayer');
+  else if (want.hotplayer) pending.push('HotPlayer');
   return (
     `Cuenta guardada a medias: se creó ${done.join(' y ') || 'parte'}, ` +
     `pero falló ${pending.join(' y ') || 'un servicio'} (${err.message}). ` +
@@ -615,18 +700,12 @@ async function createAccount({ username, password, planId, owner, notes, service
   if (!password || password.length < 4) {
     throw new BusinessError('La contraseña debe tener al menos 4 caracteres');
   }
-  const want = services
-    ? {
-        emby: !!services.emby,
-        xui: !!services.xui,
-        playerKind: services.xui ? (services.playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix') : null,
-        packageId: services.packageId || '',
-      }
-    : { emby: true, xui: false, playerKind: null, packageId: '' };
+  const want = wantFromServices(services);
   if (!want.emby && !want.xui) throw new BusinessError('Activa Emby, XUI o los dos');
   if (want.playerKind === 'maxplayer' && !M().isConfigured()) {
     throw new BusinessError('Max Player no está configurado. Revisa MAXPLAYER_API_KEY y MAXPLAYER_DOMAIN_ID.');
   }
+  if (want.hotplayer) want.mac = assertHotReady(want.mac);
   if (want.xui && !X().isConfigured()) {
     throw new BusinessError('XUI no está configurado. Revisa XUI_API_URL y XUI_API_KEY.');
   }
@@ -667,7 +746,7 @@ async function createAccount({ username, password, planId, owner, notes, service
   const xuiExpiresAt = want.xui ? expiryFromDays(xuiDays) : null;
   const clock = [embyExpiresAt, xuiExpiresAt].filter(Boolean).sort()[0];
   const expiresAt = clock;
-  const made = { embyId: null, xuiId: null, mpId: null, listOk: 0, domainId: null };
+  const made = { embyId: null, xuiId: null, mpId: null, listOk: 0, domainId: null, hotMac: null, hotOk: 0 };
 
   try {
     if (want.emby) {
@@ -705,6 +784,11 @@ async function createAccount({ username, password, planId, owner, notes, service
       made.mpId = created.userId;
       made.listOk = 1;
       made.domainId = String(config.maxplayerDomainId || '');
+    }
+    if (want.hotplayer) {
+      made.hotMac = want.mac;
+      await H().addPlaylist(want.mac, { username, password });
+      made.hotOk = 1;
     }
   } catch (err) {
     if (!made.embyId && !made.xuiId && !made.mpId) throw err;
@@ -779,9 +863,9 @@ function persistNewAccount({
         `INSERT INTO emby_accounts (
            emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
            has_emby, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
-           maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, provision_error,
-           emby_expires_at, xui_expires_at, is_trial
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, hotplayer_mac, hotplayer_ok,
+           provision_error, emby_expires_at, xui_expires_at, is_trial
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         made.embyId,
@@ -801,6 +885,8 @@ function persistNewAccount({
         made.mpId,
         made.listOk ? 1 : 0,
         made.domainId || null,
+        made.hotMac || null,
+        made.hotOk ? 1 : 0,
         provisionError,
         embyExpiresAt,
         xuiExpiresAt,
@@ -842,7 +928,22 @@ async function pushPassword(account, password) {
       errors.push(`Max Player: ${err.message}`);
     }
   }
+  if (account.hotplayer_mac) {
+    try {
+      await H().addPlaylist(account.hotplayer_mac, {
+        username: account.username,
+        password,
+      });
+    } catch (err) {
+      errors.push(`HotPlayer: ${err.message}`);
+    }
+  }
   return errors;
+}
+
+function hotplayerOkAfter(account, errors) {
+  if (!account.hotplayer_mac) return null;
+  return errors.some((item) => String(item).startsWith('HotPlayer')) ? 0 : 1;
 }
 
 function saveProgress(accountId, fields) {
@@ -943,11 +1044,19 @@ async function retryProvision({ accountId, actor }) {
     }
   }
 
+  if (!password && hasHotPlayer(account) && !account.hotplayer_ok) {
+    errors.push('HotPlayer: no hay contraseña guardada para recargar la lista');
+  }
+
   if (password) {
     const pwErrors = await pushPassword(account, password);
     errors.push(...pwErrors);
-    if (!pwErrors.length && account.maxplayer_user_id) {
-      saveProgress(account.id, { maxplayer_list_ok: 1 });
+    const progress = {};
+    if (!pwErrors.length && account.maxplayer_user_id) progress.maxplayer_list_ok = 1;
+    const hotOk = hotplayerOkAfter(account, pwErrors);
+    if (hotOk != null) progress.hotplayer_ok = hotOk;
+    if (Object.keys(progress).length) {
+      saveProgress(account.id, progress);
       account = loadOwned(account.id, actor);
     }
   }
@@ -1060,25 +1169,34 @@ async function changePassword({ accountId, newPassword, actor }) {
   if (!newPassword || newPassword.length < 4) {
     throw new BusinessError('La contraseña debe tener al menos 4 caracteres');
   }
-  const targets = [account.emby_user_id, account.xui_line_id, account.maxplayer_user_id].filter(Boolean).length;
+  const targets = [account.emby_user_id, account.xui_line_id, account.maxplayer_user_id, account.hotplayer_mac].filter(Boolean).length;
   const errors = await pushPassword(account, newPassword);
+  const hotOk = hotplayerOkAfter(account, errors);
   if (errors.length === 0) {
-    db.prepare('UPDATE emby_accounts SET password_hash = ?, password_enc = ?, provision_error = ? WHERE id = ?').run(
+    db.prepare(
+      `UPDATE emby_accounts
+       SET password_hash = ?, password_enc = ?, provision_error = ?,
+           hotplayer_ok = COALESCE(?, hotplayer_ok)
+       WHERE id = ?`
+    ).run(
       bcrypt.hashSync(newPassword, 10),
       secret.encrypt(newPassword),
-      needsWork(Object.assign({}, account, { provision_error: null })) ? account.provision_error : null,
+      needsWork(Object.assign({}, account, { provision_error: null, hotplayer_ok: hotOk == null ? account.hotplayer_ok : hotOk }))
+        ? account.provision_error
+        : null,
+      hotOk,
       account.id
     );
     return;
   }
   if (targets === 0 || errors.length < targets) {
     const message = `La contraseña no llegó a todos los servicios: ${errors.join(' · ')}. Pulsa Reintentar.`;
-    db.prepare('UPDATE emby_accounts SET password_hash = ?, password_enc = ?, provision_error = ? WHERE id = ?').run(
-      bcrypt.hashSync(newPassword, 10),
-      secret.encrypt(newPassword),
-      message,
-      account.id
-    );
+    db.prepare(
+      `UPDATE emby_accounts
+       SET password_hash = ?, password_enc = ?, provision_error = ?,
+           hotplayer_ok = COALESCE(?, hotplayer_ok)
+       WHERE id = ?`
+    ).run(bcrypt.hashSync(newPassword, 10), secret.encrypt(newPassword), message, hotOk, account.id);
     throw new BusinessError(message);
   }
   throw new BusinessError(`No se pudo cambiar la contraseña: ${errors.join(' · ')}`);
@@ -1201,6 +1319,15 @@ async function editAccount({ accountId, username, password, screens, notes, acto
       throw new BusinessError('Falta el dominio de Max Player para actualizar la lista. No se ha cambiado la cuenta.');
     }
   }
+  const touchHot = !!(account.hotplayer_mac && (nameChanged || changingPassword));
+  if (touchHot) {
+    if (!nextPassword) {
+      throw new BusinessError('No hay contraseña guardada. Escríbela para poder actualizar HotPlayer. No se ha cambiado la cuenta.');
+    }
+    if (!H().isConfigured()) {
+      throw new BusinessError('HotPlayer no está configurado. No se ha cambiado la cuenta.');
+    }
+  }
 
   const applied = {
     xui: false,
@@ -1210,6 +1337,7 @@ async function editAccount({ accountId, username, password, screens, notes, acto
     mpPassword: false,
     mpPlaylist: false,
     mpScreens: false,
+    hotPlaylist: false,
   };
 
   async function rollback() {
@@ -1233,6 +1361,14 @@ async function editAccount({ accountId, username, password, screens, notes, acto
           domainId: account.maxplayer_domain_id || config.maxplayerDomainId,
           iptvUsername: account.username,
           iptvPassword: currentPassword,
+        })
+      );
+    }
+    if (applied.hotPlaylist && currentPassword) {
+      await undo('HotPlayer', () =>
+        H().addPlaylist(account.hotplayer_mac, {
+          username: account.username,
+          password: currentPassword,
         })
       );
     }
@@ -1320,6 +1456,15 @@ async function editAccount({ accountId, username, password, screens, notes, acto
       }
     });
   }
+  if ((nameChanged || changingPassword) && account.hotplayer_mac) {
+    await runStep('HotPlayer', async () => {
+      await H().addPlaylist(account.hotplayer_mac, {
+        username: nextUser,
+        password: nextPassword,
+      });
+      applied.hotPlaylist = true;
+    });
+  }
 
   const sets = [];
   const params = [];
@@ -1338,6 +1483,10 @@ async function editAccount({ accountId, username, password, screens, notes, acto
   if (notesChanged) {
     sets.push('notes = ?');
     params.push(nextNotes);
+  }
+  if (applied.hotPlaylist) {
+    sets.push('hotplayer_ok = ?');
+    params.push(1);
   }
   if (sets.length) {
     params.push(account.id);
@@ -1436,6 +1585,8 @@ async function clearRemote(account, { id, label, run, clearSql }) {
 // para que un segundo intento no dependa de un 404.
 async function deleteEverywhere(account) {
   const errors = [];
+  // HotPlayer no se toca: no hay un borrado de listas confirmado y
+  // /delete-playlists no se usa. La lista sigue en la tele del cliente.
   const steps = [
     {
       id: account.maxplayer_user_id,
@@ -1470,7 +1621,9 @@ async function deleteEverywhere(account) {
 
 async function deleteAccount({ accountId, actor }) {
   const account = loadOwned(accountId, actor);
+  const hotplayerLeft = !!account.hotplayer_mac;
   await deleteEverywhere(account);
+  return { hotplayerLeft, username: account.username };
 }
 
 // La caducidad del panel puede ir por detrás de XUI. Si get_line trae una
@@ -1582,14 +1735,15 @@ function nextDomainLabel(id) {
 }
 
 function accountListFilters(query) {
-  const servicio = ['emby', 'xui', 'maxplayer', 'totalflix'].includes(query.servicio) ? query.servicio : '';
+  const servicio = ['emby', 'xui', 'maxplayer', 'hotplayer', 'totalflix'].includes(query.servicio) ? query.servicio : '';
   const dominio = ['pato', 'cisne'].includes(query.dominio) ? query.dominio : '';
   const clauses = [];
   const params = [];
   if (servicio === 'emby') clauses.push('(a.has_emby = 1 OR a.emby_user_id IS NOT NULL)');
   if (servicio === 'xui') clauses.push('a.xui_line_id IS NOT NULL');
   if (servicio === 'maxplayer') clauses.push("(a.player_kind = 'maxplayer' OR a.maxplayer_user_id IS NOT NULL)");
-  if (servicio === 'totalflix') clauses.push("a.player_kind = 'totalflix'");
+  if (servicio === 'hotplayer') clauses.push("(a.player_kind = 'hotplayer' OR a.hotplayer_mac IS NOT NULL)");
+  if (servicio === 'totalflix') clauses.push("a.player_kind = 'totalflix' AND a.hotplayer_mac IS NULL");
   if (dominio === 'pato') {
     clauses.push('a.maxplayer_domain_id = ?');
     params.push(String(config.maxplayerDomainPatoId));
@@ -1840,7 +1994,7 @@ async function extendService({ accountId, actor, service, planId, packageId }) {
   return { expiresAt: xuiExpiry, cost: quoted.cost, service: 'xui' };
 }
 
-async function addService({ accountId, actor, service, planId, packageId, playerKind }) {
+async function addService({ accountId, actor, service, planId, packageId, playerKind, hotplayer, mac }) {
   let account = loadOwned(accountId, actor);
   const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
   if (!password) {
@@ -1882,7 +2036,10 @@ async function addService({ accountId, actor, service, planId, packageId, player
 
   if (service !== 'xui') throw new BusinessError('Servicio no válido');
   if (account.xui_line_id) throw new BusinessError('Esta cuenta ya tiene línea XUI');
-  const kind = playerKind === 'maxplayer' ? 'maxplayer' : 'totalflix';
+  const wantsMax = playerKind === 'maxplayer';
+  const wantsHot = flagOn(hotplayer) || playerKind === 'hotplayer';
+  const hotMac = wantsHot ? assertHotReady(mac) : null;
+  const kind = wantsMax ? 'maxplayer' : wantsHot ? 'hotplayer' : 'totalflix';
   const packageRow = await loadPackage(packageId);
   const xuiDays = resolveXuiDays(packageRow, plan);
   const matched = planMatchingDays(xuiDays, packageRow && packageRow.max_connections);
@@ -1929,6 +2086,16 @@ async function addService({ accountId, actor, service, planId, packageId, player
       provisionError = `Línea XUI creada, pero Max Player falló (${err.message}). Pulsa Reintentar: no se vuelve a cobrar.`;
     }
   }
+  let hotOk = 0;
+  if (hotMac) {
+    try {
+      await H().addPlaylist(hotMac, { username: account.username, password });
+      hotOk = 1;
+    } catch (err) {
+      const msg = `Línea XUI creada, pero HotPlayer falló (${err.message}). Pulsa Reintentar: no se vuelve a cobrar.`;
+      provisionError = provisionError ? `${provisionError} ${msg}` : msg;
+    }
+  }
   const next = Object.assign({}, account, { xui_expires_at: xuiExpiry, xui_line_id: line.id, player_kind: kind });
   const tx = db.transaction(() => {
     db.prepare(
@@ -1937,7 +2104,8 @@ async function addService({ accountId, actor, service, planId, packageId, player
            xui_expires_at = ?, xui_cut = 0, expires_at = ?, status = 'active',
            maxplayer_user_id = COALESCE(?, maxplayer_user_id),
            maxplayer_domain_id = COALESCE(?, maxplayer_domain_id),
-           maxplayer_list_ok = ?, provision_error = ?
+           maxplayer_list_ok = ?, hotplayer_mac = COALESCE(?, hotplayer_mac),
+           hotplayer_ok = ?, provision_error = ?
        WHERE id = ?`
     ).run(
       line.id,
@@ -1950,6 +2118,8 @@ async function addService({ accountId, actor, service, planId, packageId, player
       mpId,
       domainId,
       mpId ? 1 : 0,
+      hotMac,
+      hotOk,
       provisionError,
       account.id
     );
@@ -1957,6 +2127,28 @@ async function addService({ accountId, actor, service, planId, packageId, player
   });
   tx();
   return { cost: quoted.cost, provisionError };
+}
+
+// Carga o actualiza la lista de una cuenta que ya tiene línea XUI.
+// No cobra créditos. add-playlists se llama con el mismo name de siempre.
+async function setHotPlayer({ accountId, mac, actor }) {
+  const account = loadOwned(accountId, actor);
+  if (!account.xui_line_id) {
+    throw new BusinessError('Primero tiene que existir la línea XUI.');
+  }
+  const normalized = assertHotReady(mac);
+  const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  if (!password) {
+    throw new BusinessError('No hay contraseña guardada. Cámbiala y después carga HotPlayer.');
+  }
+  await H().addPlaylist(normalized, { username: account.username, password });
+  const kind = account.player_kind === 'maxplayer' || account.maxplayer_user_id ? 'maxplayer' : 'hotplayer';
+  saveProgress(account.id, {
+    hotplayer_mac: normalized,
+    hotplayer_ok: 1,
+    player_kind: kind,
+  });
+  return { mac: normalized, username: account.username };
 }
 
 async function repairMaxPlayer({ accountId, actor }) {
@@ -2078,6 +2270,7 @@ module.exports = {
   restoreRemotes,
   extendService,
   addService,
+  setHotPlayer,
   repairMaxPlayer,
   listMaxPlayerDevices,
   loadDetail,

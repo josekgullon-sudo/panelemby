@@ -29,6 +29,10 @@
       <div><dt>Max Player</dt><dd><%= account.maxplayer_user_id || 'pendiente' %></dd></div>
       <div><dt>Servidor</dt><dd><%= account.maxplayer_domain_id ? domainLabel(account.maxplayer_domain_id) : '—' %></dd></div>
     <% } %>
+    <% if (account.hotplayer_mac || account.player_kind === 'hotplayer') { %>
+      <div><dt>HotPlayer</dt><dd><%= account.hotplayer_ok ? 'lista cargada' : 'pendiente' %></dd></div>
+      <div><dt>MAC</dt><dd><%= account.hotplayer_mac || '—' %></dd></div>
+    <% } %>
     <% if (account.notes) { %><div><dt>Notas</dt><dd><%= account.notes %></dd></div><% } %>
     <% if (account.provision_error) { %><div><dt>Aviso</dt><dd class="td-warn"><%= account.provision_error %></dd></div><% } %>
   </dl>
@@ -45,7 +49,7 @@
     <input id="edit-screens" name="screens" type="number" min="1" max="20" required value="<%= account.screens || account.plan_screens || 1 %>" inputmode="numeric">
     <label for="edit-notes">Notas</label>
     <textarea id="edit-notes" name="notes" rows="3"><%= account.notes || '' %></textarea>
-    <p class="hint">Usuario, contraseña y conexiones se actualizan en Emby, XUI y Max Player. Si uno falla, el panel no guarda el cambio.</p>
+    <p class="hint">Usuario, contraseña y conexiones se actualizan en Emby, XUI y Max Player. Si hay HotPlayer, al cambiar usuario o contraseña se vuelve a cargar la lista. Si uno falla, el panel no guarda el cambio.</p>
     <button class="btn btn-primary">Guardar cambios</button>
   </form>
 </section>
@@ -74,7 +78,7 @@
         <%- include('partials/xui-duration-options') %>
       </select>
       <p class="expiry-preview" id="extend-xui-expiry" data-base="<%= account.xui_expires_at || '' %>" aria-live="polite"></p>
-      <p class="hint">Suma esa duración a la línea. Emby no cambia. Si hay Max Player, se suma su coste.</p>
+      <p class="hint">Suma esa duración a la línea. Emby no cambia. Si hay Max Player, se suma su coste. HotPlayer no suma nada.</p>
       <button class="btn btn-primary btn-sm">Ampliar XUI</button>
     </form>
     <% } %>
@@ -113,11 +117,37 @@
         <option value="totalflix">TotalFlix</option>
         <% if (maxplayerConfigured) { %><option value="maxplayer">Max Player</option><% } %>
       </select>
-      <p class="hint">Misma cuenta. La línea sale con los formatos de reproducción. Se cobran los créditos igual que al crear.</p>
+      <% if (hotplayerConfigured) { %>
+      <label class="check-line"><input type="checkbox" name="dest_hotplayer" id="add-hot" value="1"> También HotPlayer</label>
+      <div class="field hot-mac">
+        <label for="add-hot-mac">MAC del cliente</label>
+        <input type="text" name="hotplayer_mac" id="add-hot-mac" placeholder="AA:BB:CC:DD:EE:FF" aria-label="MAC de HotPlayer" autocomplete="off" spellcheck="false" maxlength="17">
+      </div>
+      <% } %>
+      <p class="hint">Misma cuenta. La línea sale con los formatos de reproducción. Se cobran los créditos igual que al crear. HotPlayer no suma créditos.</p>
       <button class="btn btn-primary">Añadir a XUI</button>
     </form>
     <% } %>
   </div>
+</section>
+<% } %>
+
+<% if (account.xui_line_id) { %>
+<section class="panel" id="hotplayer">
+  <div class="panel-head"><h2>HotPlayer</h2></div>
+  <% if (!hotplayerConfigured) { %>
+    <p class="empty">Falta HOTPLAYER_API_KEY. Hasta configurarla no se pueden cargar listas.</p>
+  <% } else { %>
+  <form method="post" action="<%= base %>/<%= account.id %>/hotplayer" class="form-stack">
+    <label for="detail-hot-mac">MAC del cliente</label>
+    <input id="detail-hot-mac" name="hotplayer_mac" value="<%= account.hotplayer_mac || '' %>" placeholder="AA:BB:CC:DD:EE:FF" required autocomplete="off" spellcheck="false" maxlength="17" aria-label="MAC de HotPlayer">
+    <p class="hint">Carga la lista Xtream en esa tele. No gasta créditos. Si cambias el usuario o la contraseña de la línea, se vuelve a enviar con el mismo nombre. Borrar la cuenta no quita la lista de la tele.</p>
+    <% if (account.hotplayer_mac && !account.hotplayer_ok) { %>
+      <p class="hint hint-warn">La última carga no llegó. Vuelve a enviarla o pulsa Reintentar.</p>
+    <% } %>
+    <button class="btn btn-primary btn-sm"><%= account.hotplayer_mac ? 'Actualizar HotPlayer' : 'Cargar en HotPlayer' %></button>
+  </form>
+  <% } %>
 </section>
 <% } %>
 

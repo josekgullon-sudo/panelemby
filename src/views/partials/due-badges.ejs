@@ -3,7 +3,10 @@
     <% if (name === 'XUI') { %>
       <span class="svc-with-sub">
         <span class="badge svc-xui">XUI</span>
-        <span class="svc-sub"><%= (account.player_kind === 'maxplayer' || account.maxplayer_user_id) ? 'Max Player' : 'TotalFlix' %></span>
+        <% const isMax = account.player_kind === 'maxplayer' || account.maxplayer_user_id; %>
+        <% const isHot = account.player_kind === 'hotplayer' || account.hotplayer_mac; %>
+        <span class="svc-sub"><%= isMax && isHot ? 'Max Player · HotPlayer' : isMax ? 'Max Player' : isHot ? 'HotPlayer' : 'TotalFlix' %></span>
+        <% if (isHot && account.hotplayer_mac) { %><span class="svc-mac"><%= account.hotplayer_mac %></span><% } %>
       </span>
     <% } else { %>
       <span class="badge svc-emby">Emby</span>

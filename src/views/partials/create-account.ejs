@@ -28,7 +28,7 @@
           <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
           <span class="svc-copy">
             <span class="svc-name">XUI</span>
-            <span class="svc-desc"><%= xuiConfigured ? 'Línea IPTV: TotalFlix o Max Player' : 'Falta XUI_API_URL y XUI_API_KEY' %></span>
+            <span class="svc-desc"><%= xuiConfigured ? 'La línea IPTV. Debajo eliges la app' : 'Falta XUI_API_URL y XUI_API_KEY' %></span>
           </span>
         </label>
       </div>
@@ -56,21 +56,28 @@
 
       <div class="svc-panel xui-extra">
         <p class="svc-kicker">XUI</p>
-        <div class="segment" role="radiogroup" aria-label="Tipo de línea XUI">
-          <label class="segment-opt">
-            <input type="radio" name="player_kind" value="totalflix" checked>
-            <span class="segment-card">
-              <span class="segment-title">TotalFlix</span>
-              <span class="segment-sub">Solo la línea en XUI</span>
-            </span>
-          </label>
+        <p class="svc-kicker">Destino de la app</p>
+        <div class="segment" role="group" aria-label="Destino de la app">
           <label class="segment-opt <%= maxplayerConfigured ? '' : 'is-disabled' %>">
-            <input type="radio" name="player_kind" value="maxplayer" <%= maxplayerConfigured ? '' : 'disabled' %> <%= maxplayerConfigured ? '' : 'data-unavailable="1"' %>>
+            <input type="checkbox" name="dest_maxplayer" id="dest-maxplayer" value="1" <%= maxplayerConfigured ? '' : 'disabled' %> <%= maxplayerConfigured ? '' : 'data-unavailable="1"' %>>
             <span class="segment-card">
               <span class="segment-title">Max Player</span>
-              <span class="segment-sub"><%= maxplayerConfigured ? 'Línea XUI y usuario en la app' : 'Falta la API de Max Player' %></span>
+              <span class="segment-sub"><%= maxplayerConfigured ? 'Usuario en la app, con la línea XUI' : 'Falta la API de Max Player' %></span>
             </span>
           </label>
+          <label class="segment-opt <%= hotplayerConfigured ? '' : 'is-disabled' %>">
+            <input type="checkbox" name="dest_hotplayer" id="dest-hotplayer" value="1" <%= hotplayerConfigured ? '' : 'disabled' %> <%= hotplayerConfigured ? '' : 'data-unavailable="1"' %>>
+            <span class="segment-card">
+              <span class="segment-title">HotPlayer</span>
+              <span class="segment-sub"><%= hotplayerConfigured ? 'La lista se carga en la tele del cliente' : 'Falta HOTPLAYER_API_KEY' %></span>
+            </span>
+          </label>
+        </div>
+        <p class="hint">Puedes marcar las dos. Si no marcas ninguna, la línea queda en TotalFlix. HotPlayer no suma créditos.</p>
+        <div class="field hot-mac">
+          <label for="hotplayer-mac">MAC del cliente</label>
+          <input type="text" name="hotplayer_mac" id="hotplayer-mac" placeholder="AA:BB:CC:DD:EE:FF" aria-label="MAC de HotPlayer" autocomplete="off" spellcheck="false" maxlength="17">
+          <p class="hint">Obligatoria si HotPlayer está marcado. Formato XX:XX:XX:XX:XX:XX.</p>
         </div>
 
         <div class="field">
@@ -101,9 +108,9 @@
   var line = document.getElementById('cost-line');
   function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
   function opt(select) { return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null; }
-  function player() {
-    var picked = form.querySelector('input[name="player_kind"]:checked');
-    return picked ? picked.value : 'totalflix';
+  function destOn(id) {
+    var input = document.getElementById(id);
+    return !!(input && input.checked && !input.disabled);
   }
   function when(days) {
     var ms = Date.now() + Number(days) * 24 * 3600 * 1000;
@@ -127,10 +134,13 @@
     var xuiOn = !!(xui && xui.checked);
     if (plan) plan.disabled = !embyOn;
     if (pack) pack.disabled = !xuiOn;
-    form.querySelectorAll('input[name="player_kind"]').forEach(function (input) {
-      if (input.getAttribute('data-unavailable') === '1') return;
+    ['dest-maxplayer', 'dest-hotplayer'].forEach(function (id) {
+      var input = document.getElementById(id);
+      if (!input || input.getAttribute('data-unavailable') === '1') return;
       input.disabled = !xuiOn;
     });
+    var mac = document.getElementById('hotplayer-mac');
+    if (mac) mac.required = xuiOn && destOn('dest-hotplayer');
     var embyOpt = opt(plan);
     var xuiOpt = opt(pack);
     if (embyOn && embyOpt) {
@@ -147,11 +157,12 @@
         : num(custom);
       total += x;
       parts.push('XUI ' + x);
-      if (player() === 'maxplayer') {
+      if (destOn('dest-maxplayer')) {
         var m = num(useEmby ? embyOpt.getAttribute('data-max') : xuiOpt.getAttribute('data-max'));
         total += m;
         parts.push('Max Player ' + m);
       }
+      if (destOn('dest-hotplayer')) parts.push('HotPlayer 0');
       document.getElementById('xui-expiry').textContent = 'Caduca el ' + when(xuiDays(xuiOpt, embyOpt));
     }
     var who = total === 1 ? 'crédito' : 'créditos';
