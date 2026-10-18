@@ -1,98 +1,81 @@
-<section class="panel">
+<section class="panel" id="alta">
   <div class="panel-head"><h2>Nueva cuenta</h2></div>
   <% if (plans.length === 0) { %>
     <p class="empty"><%- emptyPlans %></p>
+  <% } else if (!xuiConfigured) { %>
+    <p class="banner banner-warn">Falta configurar XUI. Sin la línea no se puede crear la cuenta.</p>
   <% } else { %>
   <form method="post" action="<%= formAction %>" class="create-form" id="create-account">
-    <div class="form-row">
-      <input type="text" name="username" placeholder="usuario" required aria-label="Usuario" autocomplete="off">
-      <input type="password" name="password" placeholder="contraseña" required aria-label="Contraseña" autocomplete="new-password">
-      <input type="text" name="notes" placeholder="notas (opcional)" aria-label="Notas">
+    <input type="hidden" name="service_xui" value="1">
+
+    <div class="field-grid">
+      <label class="field" for="new-user">Usuario
+        <input id="new-user" type="text" name="username" required autocomplete="off" maxlength="32" placeholder="nombre del cliente">
+      </label>
+      <label class="field" for="new-pass">Contraseña
+        <input id="new-pass" type="text" name="password" required autocomplete="new-password" minlength="4" placeholder="la que le enviarás">
+      </label>
     </div>
+    <label class="field" for="new-notes">Notas
+      <input id="new-notes" type="text" name="notes" autocomplete="off" placeholder="opcional">
+    </label>
 
-    <div class="create-services">
-      <p class="svc-kicker">Dónde la creamos</p>
-      <div class="svc-picker">
-        <input class="svc-input" type="checkbox" id="service-emby" name="service_emby" value="1" checked>
-        <input class="svc-input" type="checkbox" id="service-xui" name="service_xui" value="1" <%= xuiConfigured ? '' : 'disabled' %>>
+    <% if (xuiNotice) { %><p class="banner banner-warn"><%= xuiNotice %></p><% } %>
 
-        <label class="svc-toggle" for="service-emby">
-          <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
-          <span class="svc-copy">
-            <span class="svc-name">Emby</span>
-            <span class="svc-desc">La cuenta de siempre, en el servidor Emby</span>
+    <fieldset class="choice-set">
+      <legend>App</legend>
+      <div class="choice-grid">
+        <label class="choice <%= maxplayerConfigured ? '' : 'is-disabled' %>">
+          <input type="checkbox" name="dest_maxplayer" id="dest-maxplayer" value="1" <%= maxplayerConfigured ? '' : 'disabled' %>>
+          <span class="choice-card">
+            <span class="choice-title">Max Player</span>
+            <span class="choice-sub"><%= maxplayerConfigured ? 'Usuario en la app' : 'No está configurado' %></span>
           </span>
         </label>
-
-        <label class="svc-toggle <%= xuiConfigured ? '' : 'is-disabled' %>" for="service-xui">
-          <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
-          <span class="svc-copy">
-            <span class="svc-name">XUI</span>
-            <span class="svc-desc"><%= xuiConfigured ? 'La línea IPTV. Debajo eliges la app' : 'Falta XUI_API_URL y XUI_API_KEY' %></span>
+        <label class="choice <%= hotplayerConfigured ? '' : 'is-disabled' %>">
+          <input type="checkbox" name="dest_hotplayer" id="dest-hotplayer" value="1" <%= hotplayerConfigured ? '' : 'disabled' %>>
+          <span class="choice-card">
+            <span class="choice-title">HotPlayer</span>
+            <span class="choice-sub"><%= hotplayerConfigured ? 'Lista en la tele' : 'No está configurado' %></span>
           </span>
         </label>
       </div>
+      <p class="hint">Marca una, las dos o ninguna. Si no marcas, la línea queda en TotalFlix. HotPlayer no suma créditos.</p>
+    </fieldset>
 
-      <% if (xuiNotice) { %><p class="hint hint-warn"><%= xuiNotice %></p><% } %>
-
-      <div class="svc-panel emby-extra">
-        <p class="svc-kicker">Emby</p>
-        <div class="field">
-          <label for="plan-id">Duración Emby</label>
-          <select name="plan_id" id="plan-id" aria-label="Duración Emby">
-            <% plans.forEach(p => { %>
-              <option value="<%= p.id %>"
-                data-days="<%= p.duration_days %>"
-                data-emby="<%= p.credit_cost %>"
-                data-xui="<%= p.xui_credit_cost || 0 %>"
-                data-max="<%= p.maxplayer_credit_cost || 0 %>">
-                <%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.
-              </option>
-            <% }) %>
-          </select>
-        </div>
-        <p class="expiry-preview" id="emby-expiry" aria-live="polite"></p>
-      </div>
-
-      <div class="svc-panel xui-extra">
-        <p class="svc-kicker">XUI</p>
-        <p class="svc-kicker">Destino de la app</p>
-        <div class="segment" role="group" aria-label="Destino de la app">
-          <label class="segment-opt <%= maxplayerConfigured ? '' : 'is-disabled' %>">
-            <input type="checkbox" name="dest_maxplayer" id="dest-maxplayer" value="1" <%= maxplayerConfigured ? '' : 'disabled' %> <%= maxplayerConfigured ? '' : 'data-unavailable="1"' %>>
-            <span class="segment-card">
-              <span class="segment-title">Max Player</span>
-              <span class="segment-sub"><%= maxplayerConfigured ? 'Usuario en la app, con la línea XUI' : 'Falta la API de Max Player' %></span>
-            </span>
-          </label>
-          <label class="segment-opt <%= hotplayerConfigured ? '' : 'is-disabled' %>">
-            <input type="checkbox" name="dest_hotplayer" id="dest-hotplayer" value="1" <%= hotplayerConfigured ? '' : 'disabled' %> <%= hotplayerConfigured ? '' : 'data-unavailable="1"' %>>
-            <span class="segment-card">
-              <span class="segment-title">HotPlayer</span>
-              <span class="segment-sub"><%= hotplayerConfigured ? 'La lista se carga en la tele del cliente' : 'Falta HOTPLAYER_API_KEY' %></span>
-            </span>
-          </label>
-        </div>
-        <p class="hint">Puedes marcar las dos. Si no marcas ninguna, la línea queda en TotalFlix. HotPlayer no suma créditos.</p>
-        <div class="field hot-mac">
-          <label for="hotplayer-mac">MAC del cliente</label>
-          <input type="text" name="hotplayer_mac" id="hotplayer-mac" placeholder="AA:BB:CC:DD:EE:FF" aria-label="MAC de HotPlayer" autocomplete="off" spellcheck="false" maxlength="17">
-          <p class="hint">Obligatoria si HotPlayer está marcado. Formato XX:XX:XX:XX:XX:XX.</p>
-        </div>
-
-        <div class="field">
-          <label for="xui-package">Duración XUI</label>
-          <select id="xui-package" name="xui_package_id" aria-label="Duración XUI">
-            <%- include('./xui-duration-options') %>
-          </select>
-        </div>
-        <p class="expiry-preview" id="xui-expiry" aria-live="polite"></p>
-      </div>
+    <div class="field hot-mac">
+      <label for="hotplayer-mac">MAC del cliente</label>
+      <input type="text" name="hotplayer_mac" id="hotplayer-mac" placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off" spellcheck="false" maxlength="17">
     </div>
+
+    <label class="field" for="xui-package">Duración
+      <select id="xui-package" name="xui_package_id" required aria-label="Duración">
+        <%- include('./xui-duration-options') %>
+      </select>
+    </label>
+    <p class="expiry-preview" id="xui-expiry" aria-live="polite"></p>
+
+    <label class="switch-line" for="service-emby">
+      <input class="svc-input" type="checkbox" id="service-emby" name="service_emby" value="1">
+      <span class="ios-switch" aria-hidden="true"><span class="track"><span class="knob"></span></span></span>
+      <span>También crear Emby</span>
+    </label>
+    <p class="hint emby-only">Emby usa el mismo usuario, la misma contraseña y esta duración.</p>
+    <select name="plan_id" id="plan-id" class="plan-sync" aria-label="Plan Emby" tabindex="-1">
+      <% plans.forEach(p => { %>
+        <option value="<%= p.id %>"
+          data-days="<%= p.duration_days %>"
+          data-emby="<%= p.credit_cost %>"
+          data-xui="<%= p.xui_credit_cost || 0 %>"
+          data-max="<%= p.maxplayer_credit_cost || 0 %>">
+          <%= p.name %>
+        </option>
+      <% }) %>
+    </select>
 
     <div class="create-foot">
       <p class="cost-line" id="cost-line" aria-live="polite"></p>
-      <button class="btn btn-primary" type="submit">Crear cuenta</button>
+      <button class="btn btn-primary" type="submit" data-loading="Creando…">Crear cuenta</button>
     </div>
   </form>
   <% } %>
@@ -102,15 +85,21 @@
   var form = document.getElementById('create-account');
   if (!form) return;
   var emby = document.getElementById('service-emby');
-  var xui = document.getElementById('service-xui');
   var plan = document.getElementById('plan-id');
   var pack = document.getElementById('xui-package');
   var line = document.getElementById('cost-line');
+  var admin = <%- JSON.stringify(!(currentUser && currentUser.role === 'reseller')) %>;
   function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
   function opt(select) { return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null; }
   function destOn(id) {
     var input = document.getElementById(id);
     return !!(input && input.checked && !input.disabled);
+  }
+  function packageDays(xuiOpt) {
+    var raw = xuiOpt.getAttribute('data-days');
+    if (raw) return Number(raw);
+    var fallback = xuiOpt.getAttribute('data-fallback-days');
+    return fallback ? Number(fallback) : 30;
   }
   function when(days) {
     var ms = Date.now() + Number(days) * 24 * 3600 * 1000;
@@ -120,63 +109,41 @@
       timeStyle: 'short'
     }).format(new Date(ms));
   }
-  function xuiDays(xuiOpt, embyOpt) {
-    var raw = xuiOpt.getAttribute('data-days');
-    if (raw) return Number(raw);
-    if (emby.checked && embyOpt && embyOpt.getAttribute('data-days')) return Number(embyOpt.getAttribute('data-days'));
-    var fallback = xuiOpt.getAttribute('data-fallback-days');
-    return fallback ? Number(fallback) : 30;
+  function syncPlan(days) {
+    if (!plan) return;
+    var best = null;
+    var bestDiff = Infinity;
+    Array.prototype.forEach.call(plan.options, function (option) {
+      var diff = Math.abs(num(option.getAttribute('data-days')) - days);
+      if (diff < bestDiff) { best = option; bestDiff = diff; }
+    });
+    if (best) plan.value = best.value;
   }
   function paint() {
-    var parts = [];
-    var total = 0;
-    var embyOn = !!(emby && emby.checked);
-    var xuiOn = !!(xui && xui.checked);
-    if (plan) plan.disabled = !embyOn;
-    if (pack) pack.disabled = !xuiOn;
-    ['dest-maxplayer', 'dest-hotplayer'].forEach(function (id) {
-      var input = document.getElementById(id);
-      if (!input || input.getAttribute('data-unavailable') === '1') return;
-      input.disabled = !xuiOn;
-    });
     var mac = document.getElementById('hotplayer-mac');
-    if (mac) mac.required = xuiOn && destOn('dest-hotplayer');
-    var embyOpt = opt(plan);
+    if (mac) mac.required = destOn('dest-hotplayer');
     var xuiOpt = opt(pack);
-    if (embyOn && embyOpt) {
-      var e = num(embyOpt.getAttribute('data-emby'));
-      total += e;
-      parts.push('Emby ' + e);
-      document.getElementById('emby-expiry').textContent = 'Caduca el ' + when(embyOpt.getAttribute('data-days'));
+    var preview = document.getElementById('xui-expiry');
+    if (!xuiOpt || !xuiOpt.value) {
+      if (preview) preview.textContent = '';
+      line.textContent = 'Elige una duración.';
+      return;
     }
-    if (xuiOn && xuiOpt && xuiOpt.value) {
-      var custom = xuiOpt.getAttribute('data-cost');
-      var useEmby = !xuiOpt.getAttribute('data-days') && embyOn && embyOpt;
-      var x = custom === '' || custom == null
-        ? num(useEmby ? embyOpt.getAttribute('data-xui') : xuiOpt.getAttribute('data-fallback-cost'))
-        : num(custom);
-      total += x;
-      parts.push('XUI ' + x);
-      if (destOn('dest-maxplayer')) {
-        var m = num(useEmby ? embyOpt.getAttribute('data-max') : xuiOpt.getAttribute('data-max'));
-        total += m;
-        parts.push('Max Player ' + m);
-      }
-      if (destOn('dest-hotplayer')) parts.push('HotPlayer 0');
-      document.getElementById('xui-expiry').textContent = 'Caduca el ' + when(xuiDays(xuiOpt, embyOpt));
-    }
+    var days = packageDays(xuiOpt);
+    syncPlan(days);
+    var embyOpt = opt(plan);
+    var total = 0;
+    var custom = xuiOpt.getAttribute('data-cost');
+    total += custom === '' || custom == null ? num(xuiOpt.getAttribute('data-fallback-cost')) : num(custom);
+    if (destOn('dest-maxplayer')) total += num(xuiOpt.getAttribute('data-max'));
+    if (emby && emby.checked && embyOpt) total += num(embyOpt.getAttribute('data-emby'));
+    if (preview) preview.textContent = 'Caduca el ' + when(days);
     var who = total === 1 ? 'crédito' : 'créditos';
-    line.textContent = parts.length
-      ? 'Coste: ' + total + ' ' + who + ' (' + parts.join(' + ') + '). El admin no gasta saldo; al reseller se le descuenta.'
-      : 'Activa Emby, XUI o los dos.';
+    line.textContent = admin
+      ? 'Cuesta ' + total + ' ' + who + '. A ti no se te descuentan.'
+      : 'Cuesta ' + total + ' ' + who + '.';
   }
   form.addEventListener('change', paint);
-  form.addEventListener('submit', function (ev) {
-    if (!emby.checked && !(xui && xui.checked)) {
-      ev.preventDefault();
-      line.textContent = 'Activa Emby, XUI o los dos.';
-    }
-  });
   paint();
 })();
 </script>

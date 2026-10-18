@@ -1,25 +1,60 @@
 <% const d = daysLeft(a.expires_at); %>
 <% const needsRetry = !!((a.has_emby && !a.emby_user_id) || (a.player_kind && !a.xui_line_id) || (a.player_kind === 'maxplayer' && !a.maxplayer_user_id) || (a.maxplayer_user_id && !a.maxplayer_list_ok) || ((a.hotplayer_mac || a.player_kind === 'hotplayer') && !a.hotplayer_ok)); %>
-<tr>
+<% const hasHot = !!(a.hotplayer_mac || a.player_kind === 'hotplayer'); %>
+<tr class="account-card">
   <td class="td-strong td-account">
     <a class="account-name" href="<%= actionBase %>/<%= a.id %>"><%= a.username %></a>
     <% if (a.notes) { %><span class="td-note" title="<%= a.notes %>"><%= a.notes %></span><% } %>
     <% if (a.provision_error) { %><span class="td-note td-warn" title="<%= a.provision_error %>"><%= a.provision_error %></span><% } %>
   </td>
-  <td class="td-services"><%- include('./service-badges', { a: a }) %></td>
-  <% if (showOwner) { %><td class="td-owner" data-label="Reseller"><%= a.owner %></td><% } %>
+  <td class="td-services" data-label="Servicios"><%- include('./service-badges', { a: a }) %></td>
+  <% if (showOwner) { %><td class="td-owner" data-label="Revendedor"><%= a.owner %></td><% } %>
   <td class="td-dim td-plan" data-label="Plan"><%= a.plan || '—' %></td>
   <td class="td-dim td-created" data-label="Creada"><%= a.created_at.slice(0, 10) %></td>
   <td class="td-expires" data-label="Vence"><% if (a.expires_at) { %><%= a.expires_at.slice(0, 10) %><% } else { %><span class="td-dim">Sin caducidad</span><% } %></td>
-  <td class="td-meter" data-label="Tiempo restante">
+  <td class="td-meter" data-label="Tiempo">
     <% if (a.status === 'active' && a.expires_at) { %>
       <%- include('./meter', { days: d, duration: a.duration_days }) %>
       <span class="meter-days"><%= d < 0 ? 'hace ' + (-d) + ' d' : d === 0 ? 'hoy' : d + ' d' %></span>
     <% } else { %><span class="td-dim">—</span><% } %>
   </td>
-  <td class="td-status"><%- include('./account-status', { a: a, d: d }) %></td>
+  <td class="td-status" data-label="Estado"><%- include('./account-status', { a: a, d: d }) %></td>
   <td class="td-actions">
-    <button type="button" class="row-open" aria-label="Acciones" data-id="<%= a.id %>" data-user="<%= a.username %>" data-plan="<%= a.plan_id || '' %>"<% if (canMove) { %> data-owner="<%= a.owner_id %>"<% } %><% if (needsRetry) { %> data-retry="1"<% } %><% if (a.maxplayer_user_id) { %> data-repair="1" data-domain="<%= domainLabel(a.maxplayer_domain_id) %>" data-next="<%= nextDomainLabel(a.maxplayer_domain_id) %>"<% } %><% if (a.hotplayer_mac || a.player_kind === 'hotplayer') { %> data-hot="1"<% } %>><span class="row-open-label">Acciones</span></button>
-    <button type="button" class="btn btn-danger row-delete">Borrar</button>
+    <div class="action-bar">
+      <a class="btn btn-sm" href="<%= actionBase %>/<%= a.id %>#datos-acceso">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"></use></svg>
+        Copiar datos
+      </a>
+      <a class="btn btn-sm" href="<%= actionBase %>/<%= a.id %>#renovar">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"></use></svg>
+        Renovar
+      </a>
+      <a class="btn btn-sm" href="<%= actionBase %>/<%= a.id %>#editar">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pencil"></use></svg>
+        Editar
+      </a>
+      <% if (a.maxplayer_user_id) { %>
+      <form method="post" action="<%= actionBase %>/<%= a.id %>/reparar" class="inline"
+            onsubmit="return confirm(<%- JSON.stringify('¿Arreglar la conexión de ' + a.username + '? Se cerrarán los dispositivos y el servidor pasará de ' + domainLabel(a.maxplayer_domain_id) + ' a ' + nextDomainLabel(a.maxplayer_domain_id) + '.') %>);">
+        <button class="btn btn-sm" type="submit">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wrench"></use></svg>
+          Arreglar conexión
+        </button>
+      </form>
+      <% } %>
+      <% if (needsRetry) { %>
+      <form method="post" action="<%= actionBase %>/<%= a.id %>/reintentar" class="inline">
+        <input type="hidden" name="next" value="ficha">
+        <button class="btn btn-sm btn-primary" type="submit" data-retry="1" data-loading="Reintentando…">Reintentar</button>
+      </form>
+      <% } %>
+      <form method="post" action="<%= actionBase %>/<%= a.id %>/borrar" class="inline"
+            onsubmit="return confirm(<%- JSON.stringify('¿Borrar ' + a.username + ' en Emby, XUI y Max Player?' + (hasHot ? ' La lista de HotPlayer se queda en la tele.' : '')) %>);">
+        <button class="btn btn-sm btn-danger" type="submit">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trash"></use></svg>
+          Borrar
+        </button>
+      </form>
+    </div>
   </td>
 </tr>

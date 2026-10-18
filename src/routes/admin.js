@@ -335,11 +335,10 @@ router.post(
   })
 );
 
-// Reenviar datos de conexión: rellena el modal en la siguiente carga de la lista
 router.get('/cuentas/:id/datos', (req, res) => {
   try {
-    req.session.newAccount = accounts.connectionData(parseInt(req.params.id, 10), req.user);
-    res.redirect('/admin/cuentas');
+    accounts.connectionData(parseInt(req.params.id, 10), req.user);
+    res.redirect(`/admin/cuentas/${req.params.id}#datos-acceso`);
   } catch (err) {
     backWithError(req, res, err, '/admin/cuentas');
   }
@@ -422,11 +421,9 @@ router.post(
         notes: req.body.notes,
         services,
       });
-      const card = accounts.connectionCard(created.id, req.user);
-      card.mode = 'created';
-      req.session.newAccount = card;
       if (created.provisionError) req.setFlash('error', created.provisionError);
-      res.redirect('/admin/cuentas');
+      else req.setFlash('ok', 'Cuenta creada. Copia el mensaje y envíaselo al cliente.');
+      res.redirect(`/admin/cuentas/${created.id}#datos-acceso`);
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');
     }

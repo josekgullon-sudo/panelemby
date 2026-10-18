@@ -1,5 +1,17 @@
     </main>
   </div>
 </div>
+<script>
+(function () {
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    if (!form || !form.getAttribute || ev.defaultPrevented) return;
+    var btn = form.querySelector('[data-loading]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = btn.getAttribute('data-loading');
+  });
+})();
+</script>
 </body>
 </html>

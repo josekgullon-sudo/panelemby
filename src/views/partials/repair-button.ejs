@@ -1,9 +1,9 @@
 <% if (a.maxplayer_user_id) { %>
 <form method="post" action="<%= repairAction %>/<%= a.id %>/reparar" class="inline"
-      onsubmit="return confirm('¿Reparar esta cuenta de Max Player? Se cerrarán todos los dispositivos y el servidor pasará de <%= domainLabel(a.maxplayer_domain_id) %> a <%= nextDomainLabel(a.maxplayer_domain_id) %>.');">
-  <button class="btn btn-ghost btn-sm" title="Cerrar dispositivos y cambiar entre PATO y CISNE">
+      onsubmit="return confirm(<%- JSON.stringify('¿Arreglar la conexión de ' + a.username + '? Se cerrarán los dispositivos y el servidor pasará de ' + domainLabel(a.maxplayer_domain_id) + ' a ' + nextDomainLabel(a.maxplayer_domain_id) + '.') %>);">
+  <button class="btn" type="submit">
     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wrench"></use></svg>
-    Reparar
+    Arreglar conexión
   </button>
 </form>
 <% } %>
