@@ -346,19 +346,164 @@ test('el formulario de alta y el de ampliar no duplican duración y paquete', ()
   assert.equal(create.includes('xui_plan_id'), false);
   assert.equal(create.includes('Paquete XUI'), false);
   assert.equal(create.includes('no guarda el id'), false);
-  assert.equal(create.includes('Duración Emby'), false);
   assert.equal(create.includes('Duración XUI'), false);
+  assert.equal(create.includes('También crear Emby'), false);
+  assert.equal(create.includes('type="hidden" name="service_xui"'), false);
+  assert.equal(create.includes('Sin la línea no se puede crear'), false);
+  assert.match(create, /Duración Emby/);
+  assert.match(create, /id="service-emby"/);
+  assert.match(create, /id="service-xui"/);
+  assert.match(create, /name="service_emby"/);
   assert.match(create, /name="service_xui"/);
   assert.match(create, /name="plan_id"/);
   assert.match(create, /name="xui_package_id"/);
+  assert.match(create, /name="emby_server"/);
   assert.match(create, /for="xui-package">Duración/);
+  assert.match(create, /id="emby-expiry"/);
   assert.match(create, /xui-expiry/);
   assert.match(create, /id="hotplayer-mac"/);
+  assert.match(create, /Activa Emby, XUI o los dos/);
+  assert.match(create, /class="svc-panel emby-extra"/);
+  assert.match(create, /class="svc-panel xui-extra"/);
   assert.equal(detail.includes('Paquete XUI'), false);
   assert.equal(detail.includes('xui_plan_id'), false);
   assert.match(detail, /id="extend-xui"/);
   assert.match(detail, /id="add-xui"/);
   assert.equal(fs.readFileSync(path.join(__dirname, '../src/views/client/home.ejs'), 'utf8').includes('ampliar'), false);
+});
+
+test('el formulario pinta Emby solo, XUI solo o los dos', () => {
+  const ejs = require('ejs');
+  const path = require('path');
+  const file = path.join(__dirname, '../src/views/partials/create-account.ejs');
+  const servers = [
+    { key: '1', name: 'Servidor 1', publicUrl: 'http://emby.example' },
+    { key: '2', name: 'Servidor 2', publicUrl: 'http://emby-publico.test' },
+  ];
+  const locals = {
+    plans: [{ id: 1, name: 'Plan test', duration_days: 30, credit_cost: 1, xui_credit_cost: 2, maxplayer_credit_cost: 3 }],
+    packages: [{
+      id: '7',
+      package_name: 'Full',
+      is_trial: 0,
+      official_duration: 720,
+      max_connections: 1,
+      credit_cost: null,
+    }],
+    maxplayerConfigured: true,
+    hotplayerConfigured: true,
+    xuiNotice: null,
+    embyServers: servers,
+    formAction: '/admin/cuentas',
+    emptyPlans: '',
+    currentUser: { role: 'reseller' },
+    formatDuration: (days) => `${days} días`,
+    xuiOptionMeta: () => ({ days: 30, fallbackDays: null, fallbackCost: 2, maxCost: 3 }),
+  };
+  const bothReady = ejs.render(require('fs').readFileSync(file, 'utf8'), { ...locals, xuiConfigured: true }, { filename: file });
+  assert.match(bothReady, /id="service-xui"[^>]*checked/);
+  assert.equal(/id="service-emby"[^>]*checked/.test(bothReady), false);
+  assert.match(bothReady, /svc-name">Emby/);
+  assert.match(bothReady, /svc-name">XUI/);
+  assert.match(bothReady, /Servidor 1/);
+  assert.match(bothReady, /Servidor 2/);
+  assert.match(bothReady, /name="emby_server"/);
+  assert.equal(bothReady.includes('type="hidden" name="service_xui"'), false);
+
+  const embyOnly = ejs.render(require('fs').readFileSync(file, 'utf8'), { ...locals, xuiConfigured: false }, { filename: file });
+  assert.match(embyOnly, /id="service-emby"[^>]*checked/);
+  assert.match(embyOnly, /id="service-xui"[^>]*disabled/);
+  assert.equal(/id="service-xui"[^>]*checked/.test(embyOnly), false);
+  assert.match(embyOnly, /No está configurado/);
+  assert.equal(embyOnly.includes('Sin la línea no se puede crear'), false);
+});
+
+test('el alta acepta Emby solo, XUI solo y los dos', async () => {
+  db.prepare('UPDATE panel_users SET credits = 50 WHERE id = ?').run(reseller.id);
+  const calls = install();
+  await assert.rejects(
+    () => accounts.createAccount({
+      username: 'form.nada',
+      password: 'clave',
+      owner: actor(),
+      services: accounts.parseServices({}),
+    }),
+    /Activa Emby, XUI o los dos/
+  );
+  assert.equal(calls.length, 0);
+
+  const embyOnly = await accounts.createAccount({
+    username: 'form.emby',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: accounts.parseServices({ service_emby: '1', emby_server: '2' }),
+  });
+  assert.equal(embyOnly.cost, accounts.quoteCost({ plan, emby: true, xui: false, maxplayer: false }).cost);
+  assert.deepEqual(calls.map((call) => call[0]), ['emby.create', 'emby.policy']);
+  const rowEmby = db.prepare('SELECT has_emby, emby_user_id, xui_line_id, emby_server_key, player_kind FROM emby_accounts WHERE id = ?').get(embyOnly.id);
+  assert.equal(rowEmby.has_emby, 1);
+  assert.equal(rowEmby.emby_user_id, 'e-form.emby');
+  assert.equal(rowEmby.xui_line_id, null);
+  assert.equal(rowEmby.player_kind, null);
+  assert.equal(rowEmby.emby_server_key, '2');
+
+  calls.length = 0;
+  const xuiOnly = await accounts.createAccount({
+    username: 'form.xui',
+    password: 'clave',
+    planId: null,
+    owner: actor(),
+    services: accounts.parseServices({ service_xui: '1', xui_package_id: '7', dest_hotplayer: '1', hotplayer_mac: 'AA:BB:CC:DD:EE:11' }),
+  });
+  const rowXui = db.prepare('SELECT * FROM emby_accounts WHERE id = ?').get(xuiOnly.id);
+  const pack = db.prepare('SELECT * FROM xui_packages WHERE id = ?').get('7');
+  const xuiPlan = db.prepare('SELECT * FROM plans WHERE id = ?').get(rowXui.plan_id);
+  assert.equal(rowXui.has_emby, 0);
+  assert.equal(rowXui.emby_user_id, null);
+  assert.equal(rowXui.emby_server_key, null);
+  assert.ok(rowXui.xui_line_id);
+  assert.equal(rowXui.player_kind, 'hotplayer');
+  assert.equal(calls.some((call) => call[0] === 'emby.create'), false);
+  assert.equal(calls.some((call) => call[0] === 'xui.create'), true);
+  assert.equal(xuiOnly.cost, accounts.quoteCost({
+    plan: xuiPlan,
+    packageRow: pack,
+    emby: false,
+    xui: true,
+    maxplayer: false,
+  }).cost);
+
+  calls.length = 0;
+  const both = await accounts.createAccount({
+    username: 'form.ambos',
+    password: 'clave',
+    planId: plan.id,
+    owner: actor(),
+    services: accounts.parseServices({
+      service_emby: '1',
+      service_xui: '1',
+      dest_maxplayer: '1',
+      xui_package_id: '7',
+      emby_server: '1',
+    }),
+  });
+  assert.equal(both.cost, accounts.quoteCost({
+    plan,
+    xuiPlan: plan,
+    packageRow: pack,
+    emby: true,
+    xui: true,
+    maxplayer: true,
+  }).cost);
+  assert.equal(calls.some((call) => call[0] === 'emby.create'), true);
+  assert.equal(calls.some((call) => call[0] === 'xui.create'), true);
+  assert.equal(calls.some((call) => call[0] === 'mp.create'), true);
+  const rowBoth = db.prepare('SELECT has_emby, emby_server_key, xui_line_id, maxplayer_user_id FROM emby_accounts WHERE id = ?').get(both.id);
+  assert.equal(rowBoth.has_emby, 1);
+  assert.equal(rowBoth.emby_server_key, '1');
+  assert.ok(rowBoth.xui_line_id);
+  assert.ok(rowBoth.maxplayer_user_id);
 });
 
 test('Emby y Max Player juntos guardan los dos ids', async () => {
