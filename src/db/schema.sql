@@ -56,7 +56,18 @@ CREATE TABLE IF NOT EXISTS emby_accounts (
     emby_cut            INTEGER NOT NULL DEFAULT 0,
     xui_cut             INTEGER NOT NULL DEFAULT 0,
     is_trial            INTEGER NOT NULL DEFAULT 0,
-    screens             INTEGER
+    screens             INTEGER,
+    emby_server_key     TEXT
+);
+
+-- Catálogo de servidores Emby (nombre y URLs). La API key se queda en el .env.
+CREATE TABLE IF NOT EXISTS emby_servers (
+    server_key   TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    public_url   TEXT NOT NULL,
+    internal_url TEXT NOT NULL,
+    is_active    INTEGER NOT NULL DEFAULT 1,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Catálogo XUI cacheado (get_packages). credit_cost NULL = usar el del plan.

@@ -82,6 +82,37 @@ function copied(html) {
   return JSON.parse(match[1]);
 }
 
+test('la ficha muestra el servidor Emby, la URL de la app y el traslado', async () => {
+  const html = await ejs.renderFile(
+    path.join(views, 'account-detail.ejs'),
+    locals({
+      account: account({ emby_server_key: '1' }),
+      embyServer: { key: '1', name: 'Servidor 1', publicUrl: 'http://emby.example' },
+      embyServers: [
+        { key: '1', name: 'Servidor 1', publicUrl: 'http://emby.example' },
+        { key: '2', name: 'Servidor 2', publicUrl: 'http://emby-publico.test:8096' },
+      ],
+      access: {
+        username: 'cliente.uno',
+        password: 'clave',
+        message: 'Servidor: http://emby.example',
+        embyServerName: 'Servidor 1',
+        embyPublicUrl: 'http://emby.example',
+      },
+    }),
+    { views }
+  );
+  assert.match(html, /Servidor Emby/);
+  assert.match(html, /URL de la app/);
+  assert.match(html, /http:\/\/emby\.example/);
+  assert.match(html, /Transferir a otro servidor/);
+  assert.match(html, /Servidor 2/);
+  assert.match(html, /http:\/\/emby-publico\.test:8096/);
+  assert.match(html, /transferir-emby/);
+  const data = copied(html);
+  assert.equal(data.embyUrl, 'http://emby.example');
+});
+
 test('la ficha enseña usuario y contraseña y copia el texto plano', async () => {
   const html = await ejs.renderFile(path.join(views, 'account-detail.ejs'), locals(), { views });
   assert.match(html, /Datos para el cliente/);

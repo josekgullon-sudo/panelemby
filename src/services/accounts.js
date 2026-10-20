@@ -10,12 +10,26 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const db = require('../db/database');
 const secret = require('./secret');
+const embyServers = require('./embyServers');
 const { formatExpDate, parseExpToDate } = require('./xui');
 
 const integrations = { emby: null, xui: null, maxplayer: null, hotplayer: null };
 
-function E() {
-  return integrations.emby || require('./emby');
+function serverKeyOf(accountOrKey) {
+  if (accountOrKey == null || accountOrKey === '') return '1';
+  if (typeof accountOrKey === 'string' || typeof accountOrKey === 'number') return String(accountOrKey);
+  return accountOrKey.emby_server_key || '1';
+}
+
+// Un mock inyectado en tests vale para todos los servidores, salvo que
+// exponga forServer(clave) y entonces cada cuenta va a su doble.
+function E(accountOrKey) {
+  const injected = integrations.emby;
+  if (injected) {
+    if (typeof injected.forServer === 'function') return injected.forServer(serverKeyOf(accountOrKey));
+    return injected;
+  }
+  return embyServers.clientFor(serverKeyOf(accountOrKey));
 }
 function X() {
   return integrations.xui || require('./xui');
@@ -128,49 +142,54 @@ const addCredits = db.transaction((resellerId, amount, adminId) => {
 // disable  -> la cuenta no puede iniciar sesión
 // vitrina  -> puede entrar, pero solo ve la biblioteca-cartel (config.expiryLibrary)
 
-let showcaseLibraryIdCache = null;
+const showcaseLibraryIds = new Map();
 
-async function showcaseLibraryId() {
-  if (showcaseLibraryIdCache) return showcaseLibraryIdCache;
-  const raw = await E().getVirtualFolders();
+async function showcaseLibraryId(accountOrKey) {
+  const key = serverKeyOf(accountOrKey);
+  if (showcaseLibraryIds.has(key)) return showcaseLibraryIds.get(key);
+  const raw = await E(key).getVirtualFolders();
   const libs = Array.isArray(raw) ? raw : raw.Items || [];
   const lib = libs.find((l) => l.Name === config.expiryLibrary);
   if (!lib) {
+    const server = embyServers.publicByKey(key);
     throw new BusinessError(
-      `No existe en Emby ninguna biblioteca llamada "${config.expiryLibrary}" (revisa EXPIRY_LIBRARY en el .env)`
+      `No existe en ${server.name} ninguna biblioteca llamada "${config.expiryLibrary}" (revisa EXPIRY_LIBRARY en el .env)`
     );
   }
   // Emby filtra las vistas por el Guid de la biblioteca, no por el ItemId numérico.
-  showcaseLibraryIdCache = lib.Guid || lib.ItemId || lib.Id;
-  return showcaseLibraryIdCache;
+  const id = lib.Guid || lib.ItemId || lib.Id;
+  showcaseLibraryIds.set(key, id);
+  return id;
 }
 
-async function expiredPolicyPatch() {
+async function expiredPolicyPatch(accountOrKey) {
   if (config.expiryMode !== 'vitrina') return { IsDisabled: true };
-  return { EnableAllFolders: false, EnabledFolders: [await showcaseLibraryId()] };
+  return { EnableAllFolders: false, EnabledFolders: [await showcaseLibraryId(accountOrKey)] };
 }
 
 // En modo vitrina, los clientes activos ven todas las bibliotecas EXCEPTO el
 // cartel de caducados (si no, les saldría "CUENTA CADUCADA" estando al día).
-async function activeLibrariesPatch() {
+async function activeLibrariesPatch(accountOrKey) {
   if (config.expiryMode !== 'vitrina') return {};
-  const raw = await E().getVirtualFolders();
+  const raw = await E(accountOrKey).getVirtualFolders();
   const libs = Array.isArray(raw) ? raw : raw.Items || [];
   const ids = libs.filter((l) => l.Name !== config.expiryLibrary).map((l) => l.Guid || l.ItemId || l.Id);
   return { EnableAllFolders: false, EnabledFolders: ids };
 }
 
-async function restoredPolicyPatch() {
+async function restoredPolicyPatch(accountOrKey) {
   if (config.expiryMode !== 'vitrina') return { IsDisabled: false };
-  return { IsDisabled: false, ...(await activeLibrariesPatch()) };
+  return { IsDisabled: false, ...(await activeLibrariesPatch(accountOrKey)) };
 }
 
-// --- Dispositivos de una cuenta (solo Emby) ---
+// --- Dispositivos de una cuenta (solo Emby, en el servidor de esa cuenta) ---
 
-async function listDevices(embyUserId) {
+async function listDevices(accountOrUserId) {
+  const account = accountOrUserId && typeof accountOrUserId === 'object' ? accountOrUserId : null;
+  const embyUserId = account ? account.emby_user_id : accountOrUserId;
   const [rawDevices, rawSessions] = await Promise.all([
-    E().getDevices(),
-    E().getSessions().catch(() => []),
+    E(account || '1').getDevices(),
+    E(account || '1').getSessions().catch(() => []),
   ]);
   const devices = (Array.isArray(rawDevices) ? rawDevices : rawDevices.Items || []).filter(
     (d) => d.LastUserId === embyUserId
@@ -194,10 +213,10 @@ async function listDevices(embyUserId) {
 }
 
 async function removeDevice({ account, deviceId }) {
-  const devices = await listDevices(account.emby_user_id);
+  const devices = await listDevices(account);
   const device = devices.find((d) => d.id === deviceId);
   if (!device) throw new BusinessError('Ese dispositivo no pertenece a esta cuenta');
-  await E().deleteDevice(deviceId);
+  await E(account).deleteDevice(deviceId);
   return device;
 }
 
@@ -228,6 +247,7 @@ function parseServices(body) {
     hotplayer: !!(xui && hotplayer),
     mac: String(source.hotplayer_mac || '').trim(),
     packageId: String(source.xui_package_id || '').trim(),
+    embyServer: String(source.emby_server || source.embyServer || '').trim(),
   };
 }
 
@@ -251,7 +271,25 @@ function wantFromServices(services) {
     hotplayer,
     mac: String(services.mac || '').trim(),
     packageId: services.packageId || '',
+    embyServer: String(services.embyServer || '').trim(),
   };
+}
+
+function embyServerKey(raw) {
+  try {
+    return embyServers.resolveKey(raw);
+  } catch (err) {
+    throw new BusinessError(err.message);
+  }
+}
+
+function listEmbyServers() {
+  return embyServers.publicList();
+}
+
+function embyServerFor(account) {
+  if (!account || (!account.emby_user_id && !account.has_emby)) return null;
+  return embyServers.publicByKey(account.emby_server_key || '1');
 }
 
 function requireHotMac(mac) {
@@ -597,7 +635,7 @@ function buildWelcomeMessage(card) {
   const both = card.hasEmby && card.hasXui;
   if (card.hasEmby) {
     lines.push('📺 Emby');
-    lines.push(`Servidor: ${config.embyPublicUrl}`);
+    lines.push(`Servidor: ${card.embyPublicUrl || config.embyPublicUrl}`);
     lines.push('Puerto: dejar vacío');
     lines.push(`Usuario: ${card.username}`);
     lines.push(`Contraseña: ${password}`);
@@ -645,6 +683,7 @@ function connectionCard(accountId, actor) {
     throw new BusinessError('Esa cuenta no es tuya');
   }
   const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  const embyServer = embyServerFor(account);
   const card = {
     mode: 'resend',
     username: account.username,
@@ -655,6 +694,8 @@ function connectionCard(accountId, actor) {
     embyExpiresAt: account.emby_expires_at,
     xuiExpiresAt: account.xui_expires_at,
     hasEmby: !!account.emby_user_id,
+    embyServerName: embyServer ? embyServer.name : '',
+    embyPublicUrl: embyServer && embyServer.publicUrl ? embyServer.publicUrl : config.embyPublicUrl,
     hasXui: !!account.xui_line_id,
     hasMaxPlayer: !!account.maxplayer_user_id,
     hasHotPlayer: hasHotPlayer(account),
@@ -676,7 +717,7 @@ function connectionData(accountId, actor) {
 async function compensate(made) {
   if (made.mpId) await M().deleteUser(made.mpId).catch(() => {});
   if (made.xuiId) await X().deleteLine(made.xuiId).catch(() => {});
-  if (made.embyId) await E().deleteUser(made.embyId).catch(() => {});
+  if (made.embyId) await E(made.embyServer || '1').deleteUser(made.embyId).catch(() => {});
   // La lista de HotPlayer no se deshace: no usamos /delete-playlists.
 }
 
@@ -745,6 +786,7 @@ async function createAccount({ username, password, planId, owner, notes, service
 
   let embyPlan = null;
   if (want.emby) {
+    want.embyServer = embyServerKey(want.embyServer);
     embyPlan = db.prepare('SELECT * FROM plans WHERE id = ? AND is_active = 1').get(planId);
     if (!embyPlan) throw new BusinessError('Plan no válido');
   }
@@ -783,13 +825,14 @@ async function createAccount({ username, password, planId, owner, notes, service
 
   try {
     if (want.emby) {
-      const embyUser = await E().createUser(username, password);
+      made.embyServer = want.embyServer;
+      const embyUser = await E(want.embyServer).createUser(username, password);
       made.embyId = embyUser.Id;
       try {
-        const patch = { SimultaneousStreamLimit: plan.screens || 1, ...(await activeLibrariesPatch()) };
-        await E().updatePolicy(embyUser.Id, patch);
+        const patch = { SimultaneousStreamLimit: plan.screens || 1, ...(await activeLibrariesPatch(want.embyServer)) };
+        await E(want.embyServer).updatePolicy(embyUser.Id, patch);
       } catch (err) {
-        await E().deleteUser(embyUser.Id).catch(() => {});
+        await E(want.embyServer).deleteUser(embyUser.Id).catch(() => {});
         made.embyId = null;
         throw err;
       }
@@ -906,10 +949,10 @@ function persistNewAccount({
       .prepare(
         `INSERT INTO emby_accounts (
            emby_user_id, username, password_hash, password_enc, owner_id, plan_id, expires_at, status, notes,
-           has_emby, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
+           has_emby, emby_server_key, xui_line_id, xui_package_id, xui_package_name, xui_bouquets, player_kind,
            maxplayer_user_id, maxplayer_list_ok, maxplayer_domain_id, hotplayer_mac, hotplayer_ok,
            provision_error, emby_expires_at, xui_expires_at, is_trial
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         made.embyId,
@@ -921,6 +964,7 @@ function persistNewAccount({
         expiresAt,
         notes || null,
         want.emby ? 1 : 0,
+        want.emby ? want.embyServer || '1' : null,
         made.xuiId,
         packageRow ? packageRow.id : null,
         packageRow ? packageRow.package_name : null,
@@ -948,7 +992,7 @@ async function pushPassword(account, password) {
   const errors = [];
   if (account.emby_user_id) {
     try {
-      await E().setPassword(account.emby_user_id, password);
+      await E(account).setPassword(account.emby_user_id, password);
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
     }
@@ -1020,11 +1064,15 @@ async function retryProvision({ accountId, actor }) {
 
   if (account.has_emby && !account.emby_user_id) {
     try {
-      const user = await E().createUser(account.username, password);
-      const patch = { SimultaneousStreamLimit: (plan && plan.screens) || 1, ...(await activeLibrariesPatch()) };
-      if (account.status === 'expired') Object.assign(patch, await expiredPolicyPatch());
-      await E().updatePolicy(user.Id, patch);
-      saveProgress(account.id, { emby_user_id: user.Id, has_emby: 1 });
+      const user = await E(account).createUser(account.username, password);
+      const patch = { SimultaneousStreamLimit: (plan && plan.screens) || 1, ...(await activeLibrariesPatch(account)) };
+      if (account.status === 'expired') Object.assign(patch, await expiredPolicyPatch(account));
+      await E(account).updatePolicy(user.Id, patch);
+      saveProgress(account.id, {
+        emby_user_id: user.Id,
+        has_emby: 1,
+        emby_server_key: account.emby_server_key || '1',
+      });
       account = loadOwned(account.id, actor);
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
@@ -1192,8 +1240,8 @@ async function renewRemotes(account, plan, dates) {
   if (account.emby_user_id) {
     try {
       const policyPatch = { SimultaneousStreamLimit: plan.screens || 1 };
-      if (account.status === 'expired') Object.assign(policyPatch, await restoredPolicyPatch());
-      await E().updatePolicy(account.emby_user_id, policyPatch);
+      if (account.status === 'expired') Object.assign(policyPatch, await restoredPolicyPatch(account));
+      await E(account).updatePolicy(account.emby_user_id, policyPatch);
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
     }
@@ -1441,13 +1489,13 @@ async function editAccount({ accountId, username, password, screens, notes, acto
       );
     }
     if (applied.embyScreens) {
-      await undo('Emby', () => E().setStreamLimit(account.emby_user_id, currentScreens));
+      await undo('Emby', () => E(account).setStreamLimit(account.emby_user_id, currentScreens));
     }
     if (applied.embyPassword && currentPassword) {
-      await undo('Emby', () => E().setPassword(account.emby_user_id, currentPassword));
+      await undo('Emby', () => E(account).setPassword(account.emby_user_id, currentPassword));
     }
     if (applied.embyName) {
-      await undo('Emby', () => E().renameUser(account.emby_user_id, account.username));
+      await undo('Emby', () => E(account).renameUser(account.emby_user_id, account.username));
     }
     if (applied.xui) {
       const back = {};
@@ -1491,15 +1539,15 @@ async function editAccount({ accountId, username, password, screens, notes, acto
   if (remote && account.emby_user_id) {
     await runStep('Emby', async () => {
       if (nameChanged) {
-        await E().renameUser(account.emby_user_id, nextUser);
+        await E(account).renameUser(account.emby_user_id, nextUser);
         applied.embyName = true;
       }
       if (changingPassword) {
-        await E().setPassword(account.emby_user_id, nextPassword);
+        await E(account).setPassword(account.emby_user_id, nextPassword);
         applied.embyPassword = true;
       }
       if (screensChanged) {
-        await E().setStreamLimit(account.emby_user_id, nextScreens);
+        await E(account).setStreamLimit(account.emby_user_id, nextScreens);
         applied.embyScreens = true;
       }
     });
@@ -1607,7 +1655,7 @@ async function changePlan({ accountId, planId, actor }) {
     }
   }
   if (account.emby_user_id) {
-    await E().setStreamLimit(account.emby_user_id, newPlan.screens || 1);
+    await E(account).setStreamLimit(account.emby_user_id, newPlan.screens || 1);
   }
 
   const tx = db.transaction(() => {
@@ -1671,7 +1719,7 @@ async function deleteEverywhere(account) {
     {
       id: account.emby_user_id,
       label: 'Emby',
-      run: () => E().deleteUser(account.emby_user_id),
+      run: () => E(account).deleteUser(account.emby_user_id),
       clearSql: 'UPDATE emby_accounts SET emby_user_id = NULL, has_emby = 0 WHERE id = ?',
     },
   ];
@@ -1793,7 +1841,7 @@ async function expireRemotes(account) {
   const errors = [];
   if (account.emby_user_id) {
     try {
-      await E().updatePolicy(account.emby_user_id, await expiredPolicyPatch());
+      await E(account).updatePolicy(account.emby_user_id, await expiredPolicyPatch(account));
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
     }
@@ -1821,7 +1869,7 @@ async function restoreRemotes(account) {
   const errors = [];
   if (account.emby_user_id && !account.emby_cut) {
     try {
-      await E().updatePolicy(account.emby_user_id, await restoredPolicyPatch());
+      await E(account).updatePolicy(account.emby_user_id, await restoredPolicyPatch(account));
     } catch (err) {
       errors.push(`Emby: ${err.message}`);
     }
@@ -2055,8 +2103,8 @@ async function extendService({ accountId, actor, service, planId, packageId }) {
     if (!account.emby_user_id) throw new BusinessError('Esta cuenta no tiene Emby. Créalo antes de ampliarlo.');
     const embyExpiry = extendDate(account.emby_expires_at || account.expires_at, plan);
     const patch = { SimultaneousStreamLimit: plan.screens || 1 };
-    if (account.emby_cut || account.status === 'expired') Object.assign(patch, await restoredPolicyPatch());
-    await E().updatePolicy(account.emby_user_id, patch);
+    if (account.emby_cut || account.status === 'expired') Object.assign(patch, await restoredPolicyPatch(account));
+    await E(account).updatePolicy(account.emby_user_id, patch);
     const next = Object.assign({}, account, { emby_expires_at: embyExpiry, emby_cut: 0 });
     const expiresAt = clockFrom(next);
     const tx = db.transaction(() => {
@@ -2111,7 +2159,7 @@ async function extendService({ accountId, actor, service, planId, packageId }) {
   return { expiresAt: xuiExpiry, cost: quoted.cost, service: 'xui' };
 }
 
-async function addService({ accountId, actor, service, planId, packageId, playerKind, hotplayer, mac }) {
+async function addService({ accountId, actor, service, planId, packageId, playerKind, hotplayer, mac, embyServer }) {
   let account = loadOwned(accountId, actor);
   const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
   if (!password) {
@@ -2124,27 +2172,33 @@ async function addService({ accountId, actor, service, planId, packageId, player
 
   if (service === 'emby') {
     if (account.emby_user_id) throw new BusinessError('Esta cuenta ya tiene Emby');
+    const serverKey = embyServerKey(embyServer);
     const quoted = quoteCost({ plan, emby: true, xui: false, maxplayer: false });
     if (actor.role === 'reseller' && actor.credits < quoted.cost) {
       throw new BusinessError(`Créditos insuficientes: Emby cuesta ${quoted.cost} y tienes ${actor.credits}`);
     }
-    const user = await E().createUser(account.username, password);
+    const user = await E(serverKey).createUser(account.username, password);
     const screens = account.screens || plan.screens || 1;
     try {
-      await E().updatePolicy(user.Id, { SimultaneousStreamLimit: screens, ...(await activeLibrariesPatch()) });
+      await E(serverKey).updatePolicy(user.Id, { SimultaneousStreamLimit: screens, ...(await activeLibrariesPatch(serverKey)) });
     } catch (err) {
-      await E().deleteUser(user.Id).catch(() => {});
+      await E(serverKey).deleteUser(user.Id).catch(() => {});
       throw err;
     }
     // Si ya hay línea XUI, Emby copia su caducidad (también si es ilimitada).
     const embyExpiry = account.xui_line_id ? account.xui_expires_at || null : extendDate(null, plan);
-    const next = Object.assign({}, account, { emby_expires_at: embyExpiry, has_emby: 1, emby_user_id: user.Id });
+    const next = Object.assign({}, account, {
+      emby_expires_at: embyExpiry,
+      has_emby: 1,
+      emby_user_id: user.Id,
+      emby_server_key: serverKey,
+    });
     const tx = db.transaction(() => {
       db.prepare(
         `UPDATE emby_accounts
-         SET emby_user_id = ?, has_emby = 1, emby_expires_at = ?, emby_cut = 0, expires_at = ?, plan_id = ?, status = 'active'
+         SET emby_user_id = ?, has_emby = 1, emby_server_key = ?, emby_expires_at = ?, emby_cut = 0, expires_at = ?, plan_id = ?, status = 'active'
          WHERE id = ?`
-      ).run(user.Id, embyExpiry, clockFrom(next), plan.id, account.id);
+      ).run(user.Id, serverKey, embyExpiry, clockFrom(next), plan.id, account.id);
       chargeReseller(actor, quoted.cost, 'create_account', account.id);
     });
     tx();
@@ -2341,7 +2395,7 @@ async function detailPayload(accountId, actor) {
   let mpDevicesError = null;
   if (account.emby_user_id) {
     try {
-      embyDevices = await listDevices(account.emby_user_id);
+      embyDevices = await listDevices(account);
     } catch (err) {
       embyDevicesError = err.message;
     }
@@ -2362,6 +2416,135 @@ async function detailPayload(accountId, actor) {
     xuiSyncNote,
     pending: pendingParts(account),
     access,
+    embyServer: embyServerFor(account),
+    embyServers: listEmbyServers(),
+  };
+}
+
+// Mueve el usuario de Emby a otro servidor sin cobrar créditos.
+// Emby no deja leer la contraseña: se usa la guardada en el panel
+// (password_enc). Si no está, no se llama a ningún servidor.
+// Orden: crear y comprobar en el destino, borrar en el origen, guardar.
+// Si algo falla antes de guardar, se borra el usuario nuevo y la cuenta
+// sigue en el origen. Si el guardado falla después de borrar el origen,
+// se recrea allí. El revendedor solo puede mover las cuentas que ya son suyas.
+async function transferPolicy(sourceUser, account, targetKey) {
+  const policy = Object.assign({}, (sourceUser && sourceUser.Policy) || {});
+  const screens = account.screens || policy.SimultaneousStreamLimit || 1;
+  policy.SimultaneousStreamLimit = Number(screens) || 1;
+  policy.IsAdministrator = false;
+  const cut = !!(account.emby_cut || account.status === 'expired');
+  const overlay = cut ? await expiredPolicyPatch(targetKey) : await restoredPolicyPatch(targetKey);
+  return Object.assign(policy, overlay);
+}
+
+async function deleteIfCreated(client, userId) {
+  if (!userId) return true;
+  try {
+    await client.deleteUser(userId);
+    return true;
+  } catch (err) {
+    return !!(err && err.status === 404);
+  }
+}
+
+async function transferEmbyServer({ accountId, targetKey, actor }) {
+  const account = loadOwned(accountId, actor);
+  if (!account.emby_user_id) throw new BusinessError('Esta cuenta no tiene usuario en Emby');
+  const fromKey = account.emby_server_key || '1';
+  const toKey = embyServerKey(targetKey);
+  if (fromKey === toKey) throw new BusinessError('La cuenta ya está en ese servidor');
+  const from = embyServers.publicByKey(fromKey);
+  const to = embyServers.publicByKey(toKey);
+  const password = account.password_enc ? secret.decrypt(account.password_enc) : null;
+  if (!password) {
+    throw new BusinessError(
+      `No hay contraseña guardada en el panel. Emby no la devuelve. Pon una nueva en Editar y vuelve a transferir. La cuenta sigue en ${from.name}.`
+    );
+  }
+
+  const origin = E(fromKey);
+  const dest = E(toKey);
+  let sourceUser;
+  try {
+    sourceUser = await origin.getUser(account.emby_user_id);
+  } catch (err) {
+    throw new BusinessError(`No se pudo leer el usuario en ${from.name}. La cuenta sigue ahí. ${err.message}`);
+  }
+  if (!sourceUser || !sourceUser.Id) {
+    throw new BusinessError(`No se encontró el usuario en ${from.name}. La cuenta sigue en el panel como estaba.`);
+  }
+
+  const policy = await transferPolicy(sourceUser, account, toKey);
+  let created = null;
+  try {
+    created = await dest.createUser(account.username, password);
+    await dest.setPassword(created.Id, password);
+    await dest.updatePolicy(created.Id, policy);
+    const check = await dest.getUser(created.Id);
+    if (!check || String(check.Id) !== String(created.Id) || check.Name !== account.username) {
+      throw new Error('Emby no confirmó el usuario en el destino');
+    }
+  } catch (err) {
+    const undone = await deleteIfCreated(dest, created && created.Id);
+    if (undone) {
+      throw new BusinessError(`No se pudo crear la cuenta en ${to.name}. Sigue en ${from.name}. ${err.message}`);
+    }
+    throw new BusinessError(
+      `No se pudo crear la cuenta en ${to.name} y tampoco borrar el intento (id ${created.Id}). El panel sigue apuntando a ${from.name}. ${err.message}`
+    );
+  }
+
+  try {
+    await origin.deleteUser(account.emby_user_id);
+  } catch (err) {
+    if (!err || err.status !== 404) {
+      const undone = await deleteIfCreated(dest, created.Id);
+      if (undone) {
+        throw new BusinessError(
+          `No se pudo borrar en ${from.name}. Se deshizo el usuario en ${to.name}. La cuenta sigue en ${from.name}. ${err.message}`
+        );
+      }
+      throw new BusinessError(
+        `No se pudo borrar en ${from.name} y tampoco deshacer ${to.name} (usuario ${created.Id}). El panel sigue apuntando a ${from.name}. ${err.message}`
+      );
+    }
+  }
+
+  const saveServer = db.prepare('UPDATE emby_accounts SET emby_user_id = ?, emby_server_key = ? WHERE id = ?');
+  try {
+    saveServer.run(String(created.Id), toKey, account.id);
+  } catch (err) {
+    try {
+      const again = await origin.createUser(account.username, password);
+      await origin.setPassword(again.Id, password);
+      await origin.updatePolicy(again.Id, policy);
+      saveServer.run(String(again.Id), fromKey, account.id);
+      await deleteIfCreated(dest, created.Id);
+      throw new BusinessError(`No se pudo guardar el traslado. La cuenta sigue en ${from.name}. ${err.message}`);
+    } catch (restoreErr) {
+      if (restoreErr instanceof BusinessError) throw restoreErr;
+      try {
+        saveServer.run(String(created.Id), toKey, account.id);
+        throw new BusinessError(
+          `La cuenta quedó en ${to.name}. El primer guardado falló y se ha guardado al reintentar. URL para la app: ${to.publicUrl}`
+        );
+      } catch (lastErr) {
+        if (lastErr instanceof BusinessError) throw lastErr;
+        throw new BusinessError(
+          `La cuenta está en ${to.name} con id ${created.Id}, pero el panel no pudo guardarlo y el origen ya no tiene el usuario anterior. Anota ese id. ${err.message}`
+        );
+      }
+    }
+  }
+
+  return {
+    username: account.username,
+    fromName: from.name,
+    toName: to.name,
+    publicUrl: to.publicUrl,
+    fromKey,
+    toKey,
   };
 }
 
@@ -2430,6 +2613,9 @@ module.exports = {
   addService,
   setHotPlayer,
   repairMaxPlayer,
+  transferEmbyServer,
+  listEmbyServers,
+  embyServerFor,
   listMaxPlayerDevices,
   loadDetail,
   detailPayload,
