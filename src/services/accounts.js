@@ -226,8 +226,9 @@ function flagOn(value) {
   return value === '1' || value === 'on' || value === true || value === 'true';
 }
 
-// XUI siempre es la línea. Max Player y HotPlayer son destinos de la app
-// y pueden ir los dos a la vez. Sin ninguno, la línea queda en TotalFlix.
+// Emby y XUI son independientes: uno, el otro o los dos. Sin ninguno, el alta se rechaza.
+// Max Player y HotPlayer son destinos de la línea XUI y pueden ir los dos a la vez.
+// Sin ninguno, la línea queda en TotalFlix.
 function parseServices(body) {
   const source = body || {};
   const emby = flagOn(source.service_emby);
