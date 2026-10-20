@@ -9,7 +9,7 @@
 
 const config = require('../src/config');
 const db = require('../src/db/database');
-const emby = require('../src/services/emby');
+const embyServers = require('../src/services/embyServers');
 const accounts = require('../src/services/accounts');
 
 (async () => {
@@ -17,11 +17,10 @@ const accounts = require('../src/services/accounts');
     console.log('EXPIRY_MODE no es "vitrina": no hay nada que sincronizar.');
     return;
   }
-  const activePatch = await accounts.activeLibrariesPatch();
-  const expiredPatch = await accounts.expiredPolicyPatch();
-
   const list = db
-    .prepare("SELECT id, username, emby_user_id, status FROM emby_accounts WHERE status IN ('active', 'expired')")
+    .prepare(
+      "SELECT id, username, emby_user_id, status, emby_server_key FROM emby_accounts WHERE status IN ('active', 'expired')"
+    )
     .all();
   console.log(`Cuentas a sincronizar: ${list.length}`);
 
@@ -32,8 +31,12 @@ const accounts = require('../src/services/accounts');
       console.log(`  [skip] ${account.username} — no tiene usuario en Emby`);
       continue;
     }
+    const serverKey = account.emby_server_key || '1';
     try {
-      await emby.updatePolicy(account.emby_user_id, account.status === 'active' ? activePatch : expiredPatch);
+      const patch = account.status === 'active'
+        ? await accounts.activeLibrariesPatch(serverKey)
+        : await accounts.expiredPolicyPatch(serverKey);
+      await embyServers.clientFor(serverKey).updatePolicy(account.emby_user_id, patch);
       console.log(`  [ok] ${account.username} (${account.status})`);
       ok++;
     } catch (err) {

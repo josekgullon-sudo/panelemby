@@ -1024,7 +1024,7 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .copy-grid { display: flex; flex-direction: column; gap: 10px; }
 .copy-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .copy-label { min-width: 7.5rem; color: var(--text-dim); font-size: 13px; }
-.copy-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+.copy-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; word-break: break-all; }
 .pending-list { margin: 0 0 12px; padding-left: 18px; }
 
 .svc-badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1118,6 +1118,7 @@ dialog.modal::backdrop { background: rgba(8, 12, 16, 0.72); }
 .switch-line:has(input:checked) .knob { transform: translateX(20px); }
 .emby-only { display: none; margin: 0; }
 .create-form:has(#service-emby:checked) .emby-only { display: block; }
+.emby-server-pick { margin-top: 12px; }
 select.plan-sync {
   position: absolute;
   left: 0;

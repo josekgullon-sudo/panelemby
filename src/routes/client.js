@@ -11,11 +11,13 @@ router.get('/', (req, res) => {
   const plan = req.account.plan_id
     ? db.prepare('SELECT name, screens, duration_days FROM plans WHERE id = ?').get(req.account.plan_id)
     : null;
+  const embyServer = accounts.embyServerFor(req.account);
   res.render('client/home', {
     account: req.account,
     plan,
     days: accounts.daysLeft(req.account.expires_at),
-    embyUrl: config.embyPublicUrl,
+    embyUrl: (embyServer && embyServer.publicUrl) || config.embyPublicUrl,
+    embyServerName: (embyServer && embyServer.name) || 'Servidor 1',
     xuiPublicUrl: config.xuiPublicUrl,
   });
 });

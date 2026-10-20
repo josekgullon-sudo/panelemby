@@ -61,6 +61,7 @@ ensureColumn('emby_accounts', 'xui_cut', 'ALTER TABLE emby_accounts ADD COLUMN x
 ensureColumn('emby_accounts', 'is_trial', 'ALTER TABLE emby_accounts ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
 ensureColumn('emby_accounts', 'screens', 'ALTER TABLE emby_accounts ADD COLUMN screens INTEGER');
 ensureColumn('panel_users', 'xui_member_id', 'ALTER TABLE panel_users ADD COLUMN xui_member_id TEXT');
+ensureColumn('emby_accounts', 'emby_server_key', 'ALTER TABLE emby_accounts ADD COLUMN emby_server_key TEXT');
 
 // Una instalación antigua tiene expires_at NOT NULL. Las líneas XUI sin fecha
 // se guardan con NULL (sin caducidad), así que hay que poder dejarlo vacío.
@@ -74,7 +75,7 @@ function relaxExpiresNotNull() {
     'expires_at', 'status', 'notes', 'created_at', 'has_emby', 'xui_line_id', 'xui_package_id',
     'xui_package_name', 'xui_bouquets', 'player_kind', 'maxplayer_user_id', 'maxplayer_list_ok',
     'maxplayer_domain_id', 'hotplayer_mac', 'hotplayer_ok', 'provision_error', 'emby_expires_at',
-    'xui_expires_at', 'emby_cut', 'xui_cut', 'is_trial', 'screens',
+    'xui_expires_at', 'emby_cut', 'xui_cut', 'is_trial', 'screens', 'emby_server_key',
   ];
   const extra = names.filter((name) => !kept.includes(name));
   if (extra.length) {
@@ -115,7 +116,8 @@ function relaxExpiresNotNull() {
           emby_cut            INTEGER NOT NULL DEFAULT 0,
           xui_cut             INTEGER NOT NULL DEFAULT 0,
           is_trial            INTEGER NOT NULL DEFAULT 0,
-          screens             INTEGER
+          screens             INTEGER,
+          emby_server_key     TEXT
         );
         INSERT INTO emby_accounts_new (${list}) SELECT ${list} FROM emby_accounts;
         DROP TABLE emby_accounts;
@@ -172,7 +174,13 @@ db.exec(`
     ON emby_accounts(maxplayer_domain_id, expires_at) WHERE status != 'deleted' AND maxplayer_domain_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_emby_accounts_hot_mac
     ON emby_accounts(hotplayer_mac) WHERE hotplayer_mac IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_emby_accounts_emby_server
+    ON emby_accounts(emby_server_key) WHERE emby_server_key IS NOT NULL;
 `);
+
+const { assignExistingEmbyAccounts } = require('./migrateEmbyServers');
+assignExistingEmbyAccounts(db);
+require('../services/embyServers').syncTable(db);
 
 // El plan demo del catálogo inicial pasó de 24 horas a 6. Solo se toca si sigue
 // exactamente con los valores originales del seed (no pisa cambios manuales).
