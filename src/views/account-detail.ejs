@@ -35,9 +35,15 @@
     <div><dt>Creada</dt><dd><%= account.created_at %></dd></div>
     <div><dt>Plan</dt><dd><%= account.plan || '—' %></dd></div>
     <div><dt>Conexiones</dt><dd><%= account.screens || account.plan_screens || '—' %></dd></div>
+    <% const embyChoices = (typeof embyServers !== 'undefined' && embyServers) ? embyServers : []; %>
+    <% const embySrv = (typeof embyServer !== 'undefined' && embyServer) ? embyServer : null; %>
+    <% const embyUrlText = (embySrv && embySrv.publicUrl) || (access && access.embyPublicUrl) || ''; %>
+    <% const embyNameText = (embySrv && embySrv.name) || (access && access.embyServerName) || ''; %>
     <% if (account.emby_user_id || account.has_emby) { %>
       <div><dt>Emby</dt><dd><%= account.emby_user_id || 'pendiente' %></dd></div>
       <div><dt>Caduca Emby</dt><dd><%= account.emby_expires_at ? formatClientDate(account.emby_expires_at) : '—' %><%= account.emby_cut ? ' · cortada' : '' %></dd></div>
+      <% if (embyNameText) { %><div><dt>Servidor Emby</dt><dd><%= embyNameText %></dd></div><% } %>
+      <% if (embyUrlText) { %><div><dt>URL de la app</dt><dd><code><%= embyUrlText %></code></dd></div><% } %>
     <% } %>
     <% if (account.xui_line_id || account.player_kind) { %>
       <div><dt>Línea XUI</dt><dd><%= account.xui_line_id || 'pendiente' %></dd></div>
@@ -62,6 +68,17 @@
 <section class="panel" id="datos-acceso">
   <div class="panel-head"><h2>Datos para el cliente</h2></div>
   <div class="copy-grid">
+    <% if (access.embyPublicUrl) { %>
+    <div class="copy-line">
+      <span class="copy-label">Servidor Emby</span>
+      <span class="copy-value"><%= access.embyServerName || 'Servidor 1' %></span>
+    </div>
+    <div class="copy-line">
+      <span class="copy-label">URL para la app</span>
+      <code class="copy-value"><%= access.embyPublicUrl %></code>
+      <button type="button" class="btn" data-copy="embyUrl">Copiar</button>
+    </div>
+    <% } %>
     <div class="copy-line">
       <span class="copy-label">Usuario</span>
       <code class="copy-value"><%= access.username %></code>
@@ -82,7 +99,7 @@
     <pre class="welcome-text" id="welcome-text"><%= access.message %></pre>
     <button type="button" class="btn btn-primary" data-copy="message">Copiar mensaje de bienvenida</button>
   <% } %>
-  <script type="application/json" id="access-copy"><%- JSON.stringify({ username: access.username, password: access.password || '', message: access.message || '' }).replace(/</g, '\\u003c') %></script>
+  <script type="application/json" id="access-copy"><%- JSON.stringify({ username: access.username, password: access.password || '', message: access.message || '', embyUrl: access.embyPublicUrl || '' }).replace(/</g, '\\u003c') %></script>
 </section>
 <% } %>
 
@@ -175,6 +192,22 @@
           <option value="<%= p.id %>" <%= String(suggestedEmbyPlanId) === String(p.id) ? 'selected' : '' %>><%= p.name %> · <%= formatDuration(p.duration_days) %> · <%= p.screens %> pant. · <%= p.credit_cost %> cr.</option>
         <% }) %>
       </select>
+      <% if (embyChoices.length > 1) { %>
+      <fieldset class="choice-set">
+        <legend>Servidor Emby</legend>
+        <div class="choice-grid">
+          <% embyChoices.forEach(function (server) { %>
+            <label class="choice">
+              <input type="radio" name="emby_server" value="<%= server.key %>" <%= server.key === '1' ? 'checked' : '' %>>
+              <span class="choice-card">
+                <span class="choice-title"><%= server.name %></span>
+                <span class="choice-sub"><%= server.publicUrl %></span>
+              </span>
+            </label>
+          <% }) %>
+        </div>
+      </fieldset>
+      <% } %>
       <p class="hint">Mismo usuario y contraseña. La caducidad copia la de la línea. Se cobran los créditos del plan, igual que al crear.</p>
       <button class="btn btn-primary">Añadir a Emby</button>
     </form>
@@ -224,6 +257,32 @@
     <button class="btn btn-primary btn-sm"><%= account.hotplayer_mac ? 'Actualizar HotPlayer' : 'Cargar en HotPlayer' %></button>
   </form>
   <% } %>
+</section>
+<% } %>
+
+<% const transferTargets = embyChoices.filter(function (server) { return server.key !== (account.emby_server_key || '1'); }); %>
+<% if (account.emby_user_id && transferTargets.length) { %>
+<section class="panel" id="transferir-emby">
+  <div class="panel-head"><h2>Transferir a otro servidor</h2></div>
+  <form method="post" action="<%= base %>/<%= account.id %>/transferir-emby" class="form-stack"
+        onsubmit="return confirm('¿Mover esta cuenta de Emby al servidor elegido? No cuesta créditos. En la app habrá que poner la URL nueva.');">
+    <fieldset class="choice-set">
+      <legend>Servidor de destino</legend>
+      <div class="choice-grid">
+        <% transferTargets.forEach(function (server, index) { %>
+          <label class="choice">
+            <input type="radio" name="emby_server" value="<%= server.key %>" <%= index === 0 ? 'checked' : '' %> required>
+            <span class="choice-card">
+              <span class="choice-title"><%= server.name %></span>
+              <span class="choice-sub"><%= server.publicUrl %></span>
+            </span>
+          </label>
+        <% }) %>
+      </div>
+    </fieldset>
+    <p class="hint">Crea el mismo usuario, con la misma contraseña y la misma política, comprueba que existe y luego lo quita del servidor actual. No cuesta créditos. Si no hay contraseña guardada, no se mueve nada.</p>
+    <button class="btn btn-primary">Transferir a otro servidor</button>
+  </form>
 </section>
 <% } %>
 

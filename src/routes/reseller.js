@@ -81,6 +81,7 @@ router.get(
     tipo: pageData.tipo,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
+    embyServers: accounts.listEmbyServers(),
     daysLeft: accounts.daysLeft,
     packages: form.packages,
     xuiConfigured: form.xuiConfigured,
@@ -178,7 +179,7 @@ router.get(
       return res.redirect('/reseller/cuentas');
     }
     try {
-      const devices = await accounts.listDevices(account.emby_user_id);
+      const devices = await accounts.listDevices(account);
       res.render('devices', { account, devices, base: `/reseller/cuentas/${account.id}/dispositivos`, backUrl: '/reseller/cuentas' });
     } catch (err) {
       backWithError(req, res, err, '/reseller/cuentas');
@@ -287,6 +288,27 @@ router.get(
 );
 
 router.post(
+  '/cuentas/:id/transferir-emby',
+  wrap(async (req, res) => {
+    const back = `/reseller/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.transferEmbyServer({
+        accountId: parseInt(req.params.id, 10),
+        targetKey: req.body.emby_server,
+        actor: req.user,
+      });
+      req.setFlash(
+        'ok',
+        `${result.username} ahora está en ${result.toName}. En la app hay que poner ${result.publicUrl}. No se han cobrado créditos.`
+      );
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
   '/cuentas/:id/reparar',
   wrap(async (req, res) => {
     const back = `/reseller/cuentas/${req.params.id}`;
@@ -378,6 +400,7 @@ router.post(
         playerKind: req.body.player_kind,
         hotplayer: req.body.dest_hotplayer,
         mac: req.body.hotplayer_mac,
+        embyServer: req.body.emby_server,
       });
       const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
       card.mode = 'created';

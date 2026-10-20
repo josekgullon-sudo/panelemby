@@ -30,10 +30,57 @@ function intEnv(name, fallback) {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+function envText(env, name) {
+  const value = env[name];
+  if (value == null) return '';
+  const text = String(value).trim();
+  if (!text || text.includes('PON_AQUI') || text.includes('cambia_esto')) return '';
+  return text;
+}
+
+function envUrl(env, name) {
+  return envText(env, name).replace(/\/+$/, '');
+}
+
+// Servidor 1 sale siempre de EMBY_URL / EMBY_API_KEY / EMBY_PUBLIC_URL.
+// Un .env antiguo, sin variables EMBY_SERVER_*, sigue teniendo un solo servidor.
+// Servidores extra: EMBY_SERVER_2_URL, _PUBLIC_URL, _API_KEY y _NAME, y así hasta el 20.
+// La API key vacía reutiliza la del servidor 1. Las claves no se escriben en SQLite.
+function parseEmbyServers(env) {
+  const source = env || process.env;
+  const primaryUrl = envUrl(source, 'EMBY_URL');
+  const primaryKey = envText(source, 'EMBY_API_KEY');
+  if (!primaryUrl || !primaryKey) return [];
+  const primaryPublic = envUrl(source, 'EMBY_PUBLIC_URL') || primaryUrl;
+  const servers = [
+    {
+      key: '1',
+      name: envText(source, 'EMBY_SERVER_1_NAME') || 'Servidor 1',
+      url: primaryUrl,
+      publicUrl: envUrl(source, 'EMBY_SERVER_1_PUBLIC_URL') || primaryPublic,
+      apiKey: envText(source, 'EMBY_SERVER_1_API_KEY') || primaryKey,
+    },
+  ];
+  for (let n = 2; n <= 20; n += 1) {
+    const url = envUrl(source, `EMBY_SERVER_${n}_URL`);
+    if (!url) continue;
+    servers.push({
+      key: String(n),
+      name: envText(source, `EMBY_SERVER_${n}_NAME`) || `Servidor ${n}`,
+      url,
+      publicUrl: envUrl(source, `EMBY_SERVER_${n}_PUBLIC_URL`) || url,
+      apiKey: envText(source, `EMBY_SERVER_${n}_API_KEY`) || primaryKey,
+    });
+  }
+  return servers;
+}
+
 const config = {
   embyUrl: required('EMBY_URL').replace(/\/+$/, ''),
   embyApiKey: required('EMBY_API_KEY'),
   embyPublicUrl: (process.env.EMBY_PUBLIC_URL || process.env.EMBY_URL).trim().replace(/\/+$/, ''),
+  embyServers: parseEmbyServers(process.env),
+  parseEmbyServers,
 
   port: parseInt(process.env.PORT || '3000', 10),
   sessionSecret: required('SESSION_SECRET'),

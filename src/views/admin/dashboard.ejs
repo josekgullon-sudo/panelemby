@@ -27,6 +27,25 @@
   </div>
 </div>
 
+<% if (embyByServer && embyByServer.length) { %>
+<section class="panel">
+  <div class="panel-head"><h2>Cuentas Emby por servidor</h2></div>
+  <table>
+    <thead><tr><th>Servidor</th><th>URL para la app</th><th>Activas</th><th>Caducadas</th></tr></thead>
+    <tbody>
+    <% embyByServer.forEach(function (server) { %>
+      <tr>
+        <td class="td-strong"><%= server.name %></td>
+        <td><code><%= server.public_url %></code></td>
+        <td><%= server.active || 0 %></td>
+        <td><%= server.expired || 0 %></td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+</section>
+<% } %>
+
 <div class="columns">
   <section class="panel">
     <div class="panel-head">

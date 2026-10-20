@@ -4,6 +4,7 @@
 //   node scripts/import-emby.js --simular         (solo muestra qué haría, no toca nada)
 //   node scripts/import-emby.js                   (importa con 30 días por defecto)
 //   node scripts/import-emby.js --dias 60         (importa con otra duración)
+//   node scripts/import-emby.js --servidor 2      (lee ese servidor Emby, no el 1)
 //
 // Reglas:
 //   - Los administradores de Emby NO se importan (el cron los desactivaría al caducar).
@@ -21,14 +22,23 @@ const args = process.argv.slice(2);
 const dryRun = args.includes('--simular');
 const diasIdx = args.indexOf('--dias');
 const dias = diasIdx !== -1 ? parseInt(args[diasIdx + 1], 10) : 30;
+const serverIdx = args.indexOf('--servidor');
+const serverKey = serverIdx !== -1 ? String(args[serverIdx + 1] || '').trim() : '1';
 if (!Number.isInteger(dias) || dias <= 0) {
   console.error('Valor de --dias inválido');
   process.exit(1);
 }
 
 const db = require('../src/db/database');
-const emby = require('../src/services/emby');
+const embyServers = require('../src/services/embyServers');
 const { toSqlDate } = require('../src/services/accounts');
+let emby;
+try {
+  emby = embyServers.clientFor(serverKey);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 (async () => {
   const admin = db.prepare("SELECT * FROM panel_users WHERE role = 'admin' AND is_active = 1 LIMIT 1").get();
@@ -46,6 +56,7 @@ const { toSqlDate } = require('../src/services/accounts');
 
   const raw = await emby.listUsers();
   const users = Array.isArray(raw) ? raw : raw.Items || [];
+  console.log(`Servidor: ${emby.name || serverKey}`);
   console.log(`Usuarios en Emby: ${users.length}`);
   console.log(`Plan asignado: ${plan.name} · caducidad a ${dias} días desde hoy`);
   if (dryRun) console.log('MODO SIMULACIÓN: no se escribirá nada.\n');
@@ -54,8 +65,8 @@ const { toSqlDate } = require('../src/services/accounts');
   const expiresPast = toSqlDate(new Date());
 
   const insert = db.prepare(
-    `INSERT INTO emby_accounts (emby_user_id, username, password_hash, owner_id, plan_id, expires_at, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'importado de Emby')`
+    `INSERT INTO emby_accounts (emby_user_id, username, password_hash, owner_id, plan_id, expires_at, status, notes, has_emby, emby_server_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'importado de Emby', 1, ?)`
   );
 
   let imported = 0;
@@ -88,7 +99,7 @@ const { toSqlDate } = require('../src/services/accounts');
       // Hash aleatorio: nadie puede entrar con esta cuenta al panel hasta
       // que se le ponga contraseña desde Cuentas -> Contraseña.
       const unusable = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
-      insert.run(u.Id, u.Name, unusable, admin.id, plan.id, expiresAt, status);
+      insert.run(u.Id, u.Name, unusable, admin.id, plan.id, expiresAt, status, serverKey);
     }
     imported++;
   }

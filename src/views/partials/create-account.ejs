@@ -61,6 +61,26 @@
       <span>También crear Emby</span>
     </label>
     <p class="hint emby-only">Emby usa el mismo usuario, la misma contraseña y esta duración.</p>
+    <% const embyChoices = (typeof embyServers !== 'undefined' && embyServers) ? embyServers : []; %>
+    <% if (embyChoices.length > 1) { %>
+    <div class="emby-only emby-server-pick">
+      <fieldset class="choice-set">
+        <legend>Servidor Emby</legend>
+        <div class="choice-grid">
+          <% embyChoices.forEach(function (server) { %>
+            <label class="choice">
+              <input type="radio" name="emby_server" value="<%= server.key %>" <%= server.key === '1' ? 'checked' : '' %>>
+              <span class="choice-card">
+                <span class="choice-title"><%= server.name %></span>
+                <span class="choice-sub"><%= server.publicUrl %></span>
+              </span>
+            </label>
+          <% }) %>
+        </div>
+      </fieldset>
+      <p class="hint">La URL de la tarjeta es la que hay que poner en la app.</p>
+    </div>
+    <% } %>
     <select name="plan_id" id="plan-id" class="plan-sync" aria-label="Plan Emby" tabindex="-1">
       <% plans.forEach(p => { %>
         <option value="<%= p.id %>"

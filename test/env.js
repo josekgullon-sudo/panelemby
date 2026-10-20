@@ -12,6 +12,10 @@ function fill(name, value) {
 fill('EMBY_URL', 'http://127.0.0.1:8096');
 fill('EMBY_API_KEY', 'test-emby-key');
 fill('EMBY_PUBLIC_URL', 'http://emby.example');
+fill('EMBY_SERVER_2_NAME', 'Servidor 2');
+fill('EMBY_SERVER_2_URL', 'http://emby2.test:8096');
+fill('EMBY_SERVER_2_PUBLIC_URL', 'http://emby-publico.test:8096');
+fill('EMBY_SERVER_2_API_KEY', 'test-emby-key-2');
 fill('SESSION_SECRET', 'test-session-secret-value');
 fill('EXPIRY_MODE', 'disable');
 fill('XUI_API_URL', 'https://xui.test/access');

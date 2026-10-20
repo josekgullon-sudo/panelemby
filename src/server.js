@@ -65,7 +65,10 @@ app.use((err, req, res, next) => {
 
 app.listen(config.port, () => {
   console.log(`Panel Emby escuchando en http://localhost:${config.port}`);
-  console.log(`Emby configurado en ${config.embyUrl}`);
+  const embyLine = (config.embyServers || [])
+    .map((server) => `${server.name} (${server.url})`)
+    .join(', ');
+  console.log(`Emby: ${embyLine || config.embyUrl}`);
 });
 
 // El cron de caducidades se engancha aquí cuando exista (src/jobs/expiry.js)

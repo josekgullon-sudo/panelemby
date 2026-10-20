@@ -41,6 +41,21 @@ router.get('/', (req, res) => {
       )
       .get().n,
   };
+  const embyByServer = db
+    .prepare(
+      `SELECT s.name, s.public_url,
+              SUM(CASE WHEN a.status = 'active' THEN 1 ELSE 0 END) AS active,
+              SUM(CASE WHEN a.status = 'expired' THEN 1 ELSE 0 END) AS expired
+       FROM emby_servers s
+       LEFT JOIN emby_accounts a
+         ON a.emby_server_key = s.server_key
+        AND a.status != 'deleted'
+        AND (a.has_emby = 1 OR a.emby_user_id IS NOT NULL)
+       WHERE s.is_active = 1
+       GROUP BY s.server_key
+       ORDER BY s.server_key`
+    )
+    .all();
   const recent = db
     .prepare(
       `SELECT t.*, r.username AS reseller, a.username AS account
@@ -76,6 +91,7 @@ router.get('/', (req, res) => {
     .all();
   res.render('admin/dashboard', {
     stats,
+    embyByServer,
     byReseller,
     upcoming,
     recent,
@@ -305,6 +321,7 @@ router.get(
     tipo: pageData.tipo,
     newAccount,
     embyPublicUrl: config.embyPublicUrl,
+    embyServers: accounts.listEmbyServers(),
     daysLeft: accounts.daysLeft,
     packages: form.packages,
     xuiConfigured: form.xuiConfigured,
@@ -360,7 +377,7 @@ router.get(
       return res.redirect('/admin/cuentas');
     }
     try {
-      const devices = await accounts.listDevices(account.emby_user_id);
+      const devices = await accounts.listDevices(account);
       res.render('devices', { account, devices, base: `/admin/cuentas/${account.id}/dispositivos`, backUrl: '/admin/cuentas' });
     } catch (err) {
       backWithError(req, res, err, '/admin/cuentas');
@@ -547,6 +564,27 @@ router.post('/cuentas/sincronizar-xui', (req, res) => {
 });
 
 router.post(
+  '/cuentas/:id/transferir-emby',
+  wrap(async (req, res) => {
+    const back = `/admin/cuentas/${req.params.id}`;
+    try {
+      const result = await accounts.transferEmbyServer({
+        accountId: parseInt(req.params.id, 10),
+        targetKey: req.body.emby_server,
+        actor: req.user,
+      });
+      req.setFlash(
+        'ok',
+        `${result.username} ahora está en ${result.toName}. En la app hay que poner ${result.publicUrl}. No se han cobrado créditos.`
+      );
+      res.redirect(back);
+    } catch (err) {
+      backWithError(req, res, err, back);
+    }
+  })
+);
+
+router.post(
   '/cuentas/:id/reparar',
   wrap(async (req, res) => {
     const back = `/admin/cuentas/${req.params.id}`;
@@ -638,6 +676,7 @@ router.post(
         playerKind: req.body.player_kind,
         hotplayer: req.body.dest_hotplayer,
         mac: req.body.hotplayer_mac,
+        embyServer: req.body.emby_server,
       });
       const card = accounts.connectionCard(parseInt(req.params.id, 10), req.user);
       card.mode = 'created';

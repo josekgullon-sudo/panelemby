@@ -31,7 +31,8 @@
 <section class="panel">
   <div class="panel-head"><h2>Conéctate a Emby</h2></div>
   <table class="kv">
-    <tr><th>Servidor</th><td><code><%= embyUrl %></code></td></tr>
+    <tr><th>Servidor</th><td><%= typeof embyServerName !== 'undefined' && embyServerName ? embyServerName : 'Servidor 1' %></td></tr>
+    <tr><th>URL</th><td><code><%= embyUrl %></code></td></tr>
     <tr><th>Puerto</th><td class="td-dim">dejar vacío</td></tr>
     <tr><th>Usuario</th><td><code><%= account.username %></code></td></tr>
     <tr><th>Contraseña</th><td class="td-dim">la que te dio tu proveedor</td></tr>

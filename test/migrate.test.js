@@ -68,12 +68,14 @@ test('la migración añade ids externos y costes sin perder la cuenta vieja', ()
     'hotplayer_ok',
     'emby_expires_at',
     'xui_expires_at',
+    'emby_server_key',
   ]) {
     assert.ok(accountCols.includes(name), name);
   }
   const account = db.prepare('SELECT * FROM emby_accounts WHERE username = ?').get('cliente');
   assert.equal(account.emby_user_id, 'emby-old');
   assert.equal(account.has_emby, 1);
+  assert.equal(account.emby_server_key, '1');
   assert.equal(account.xui_line_id, null);
   assert.equal(account.maxplayer_user_id, null);
 

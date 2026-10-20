@@ -71,7 +71,8 @@ Si se piden varios servicios se suman. El admin no gasta saldo. Si XUI se crea y
 
 No hay que lanzar nada a mano. Al arrancar, el panel añade las columnas que falten:
 
-- `emby_accounts`: `has_emby`, `xui_line_id`, `xui_package_id`, `xui_package_name`, `xui_bouquets`, `player_kind` (`totalflix` o `maxplayer`), `maxplayer_user_id`, `maxplayer_list_ok`, `maxplayer_domain_id`, `emby_expires_at`, `xui_expires_at`, `emby_cut`, `xui_cut`, `provision_error`
+- `emby_accounts`: `has_emby`, `emby_server_key` (las cuentas que ya eran de Emby quedan en el servidor `1`), `xui_line_id`, `xui_package_id`, `xui_package_name`, `xui_bouquets`, `player_kind` (`totalflix` o `maxplayer`), `maxplayer_user_id`, `maxplayer_list_ok`, `maxplayer_domain_id`, `emby_expires_at`, `xui_expires_at`, `emby_cut`, `xui_cut`, `provision_error`
+- tabla `emby_servers`: nombre y URLs que salen del `.env`. No guarda la API key
 - `panel_users.xui_member_id`: uno o varios `member_id` de XUI, separados por comas
 - `plans`: `xui_credit_cost`, `maxplayer_credit_cost` (las dos a 0)
 - tabla nueva `xui_packages` (catálogo cacheado; el precio en créditos que pongas se conserva al actualizar)
@@ -102,6 +103,20 @@ Conviene contrastar, creando una línea de prueba y borrándola, que la API de t
 11. Un 503 «Could not verify public API allowance» se reintenta solo. Si sigue fallando, el aviso debe decirlo.
 12. Reparar: `DELETE /users/devices/{id}` y, si falla, borrar uno a uno en `/customers/{id}/devices`. El cambio de servidor edita la lista que ya existe (`PUT /customers/{id}/lists/{list_id}`) y borra las demás, para que quede una sola en PATO o CISNE. `PUT /users/list` en este panel añade otra lista («New list») y no sirve para el cambio.
 13. `npm run import-xui` (y `--simular`): si `get_lines` viene vacío, recorre `get_line` por id de 4 en 4. `{"status":"STATUS_FAILURE"}` sin texto es un id vacío. Un 503 se reintenta; si un id sigue fallando, el proceso sale con ese id y no importa a medias. No duplica al repetirlo, no cobra, y marca Max Player solo si el usuario IPTV está en `GET /users` paginado. El informe lista dueños, PATO/CISNE, activas/caducadas y errores. En el admin, Sincronizar XUI vuelve al momento y el avance se actualiza en la página. Un 429 de Max Player «Reintenta en N s» espera esos segundos.
+
+## Servidores Emby
+
+El servidor 1 sigue siendo `EMBY_URL`, `EMBY_API_KEY` y `EMBY_PUBLIC_URL`. Un `.env` antiguo, sin más variables, arranca igual que antes y todas las cuentas Emby quedan en ese servidor.
+
+Para otro servidor hace falta un bloque `EMBY_SERVER_2_NAME`, `EMBY_SERVER_2_URL` (la URL interna con la que habla el panel), `EMBY_SERVER_2_PUBLIC_URL` (la que se copia en la app) y `EMBY_SERVER_2_API_KEY`. Si la clave se deja vacía, se usa la de `EMBY_API_KEY`. Un tercero es el mismo bloque con `3`, hasta el 20. Las claves no se escriben en SQLite ni en el repositorio.
+
+Al crear una cuenta con Emby, o al añadir Emby a una cuenta que no lo tenía, se elige el servidor. Renovar, ampliar, caducar, reactivar, cambiar contraseña, editar, borrar, reintentar, dispositivos y sincronizar bibliotecas usan el servidor guardado en la cuenta.
+
+En la ficha se ve el nombre del servidor y la URL de la app, en texto que se puede copiar. **Transferir a otro servidor** crea el usuario en el destino con el mismo nombre, la contraseña guardada en el panel y la misma política (bibliotecas, límite de pantallas y si está cortada o activa), comprueba que existe, lo borra en el origen y actualiza la ficha. No cuesta créditos. Emby no deja leer la contraseña: si el panel no la tiene guardada (cuentas importadas antes de `password_enc`), la transferencia se rechaza y la cuenta se queda en el origen. Hay que poner una contraseña en Editar y volver a intentarlo. Si el destino falla, se borra lo que se hubiera creado y la cuenta sigue en el origen.
+
+El revendedor elige servidor al crear y puede transferir solo sus cuentas, con la misma regla que ya usa para renovar o borrar. No hay un permiso aparte por servidor: los dos tienen el mismo contenido.
+
+`npm run import-emby -- --servidor 2` importa desde ese servidor. `npm run test-emby` prueba cada servidor configurado.
 
 ## Caducidades
 
