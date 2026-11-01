@@ -26,16 +26,19 @@ const TABLE_CANDIDATES = {
 const COLUMN_CANDIDATES = {
   customers: {
     id: ['id'],
-    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id'],
+    // chat_id gana si existe. user_id / telegram_id cubren el esquema en el que
+    // el id de Telegram no se llama chat_id (en privado suele ser el mismo número).
+    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id', 'from_id'],
     username: ['username', 'telegram_username', 'tg_username', 'user_name'],
-    name: ['name', 'full_name', 'display_name', 'first_name'],
-    lastName: ['last_name', 'lastname'],
-    xuiUsername: ['xui_username', 'line_username', 'iptv_username', 'xtream_username', 'panel_username'],
+    name: ['name', 'full_name', 'display_name', 'nombre', 'customer_name'],
+    firstName: ['first_name', 'firstname'],
+    lastName: ['last_name', 'lastname', 'surname', 'apellidos'],
+    xuiUsername: ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username', 'iptv_user', 'xtream_username', 'panel_username'],
     createdAt: ['created_at', 'created', 'joined_at', 'first_seen_at'],
   },
   messages: {
     id: ['id'],
-    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id'],
+    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id'],
     customerId: ['customer_id'],
     role: ['role', 'sender', 'author', 'direction', 'kind'],
     text: ['text', 'content', 'body', 'message'],
@@ -45,32 +48,42 @@ const COLUMN_CANDIDATES = {
   },
   payments: {
     id: ['id'],
-    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id'],
+    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id', 'from_id'],
     customerId: ['customer_id'],
-    // Importe en céntimos. amount_cents gana si convive con amount.
-    amountCents: ['amount_cents', 'amount', 'amount_total', 'unit_amount'],
-    status: ['status', 'payment_status', 'state'],
+    // amount_cents / amount_total (Stripe) van en céntimos. amount a secas:
+    // entero = céntimos, con decimales = euros (59.99).
+    amountCents: ['amount_cents', 'amount_total', 'unit_amount', 'amount', 'total'],
+    amountEuros: ['amount_eur', 'amount_euros', 'euros', 'total_eur'],
+    status: ['status', 'state'],
+    paymentStatus: ['payment_status', 'stripe_payment_status'],
     createdAt: ['created_at', 'created', 'inserted_at'],
-    paidAt: ['paid_at', 'completed_at', 'paid_on'],
-    xuiUsername: ['xui_username', 'line_username'],
+    paidAt: ['paid_at', 'completed_at', 'confirmed_at', 'paid_on'],
+    xuiUsername: ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username'],
   },
   trials: {
     id: ['id'],
-    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id'],
+    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id'],
     customerId: ['customer_id'],
-    username: ['username', 'xui_username', 'line_username'],
+    username: ['username', 'xui_username', 'xui_user', 'line_username', 'line_user'],
     createdAt: ['created_at', 'created', 'started_at'],
   },
   escalations: {
     id: ['id'],
-    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id'],
+    chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id'],
     customerId: ['customer_id'],
     status: ['status', 'state'],
     createdAt: ['created_at', 'created', 'opened_at'],
   },
 };
 
-const PAID_STATUS = new Set(['complete', 'completed', 'paid', 'succeeded', 'success', 'paid_out']);
+const PAID_STATUS = new Set([
+  'complete', 'completed', 'paid', 'succeeded', 'success', 'paid_out',
+  'confirmed', 'confirmado', 'pagado', 'pago_confirmado', 'aprobado',
+]);
+const NOT_PAID_STATUS = new Set([
+  'unpaid', 'incomplete', 'incomplete_expired', 'expired', 'failed',
+  'canceled', 'cancelled', 'pending', 'open', 'processing', 'refunded',
+]);
 const PENDING_STATUS = new Set(['pending', 'open', 'unpaid', 'created', 'incomplete', 'requires_payment']);
 const CLOSED_ESC = new Set(['closed', 'resolved', 'done', 'complete', 'completed', 'cancelled', 'canceled', 'sent', 'scheduled']);
 const FOLLOW_OPEN = new Set(['open', 'escalated', 'human', 'support', 'waiting', 'activo', 'abierta']);
@@ -245,6 +258,46 @@ function isExcluded(chatId, username, exclude) {
 
 function isChatKey(value) {
   return /^(?:c:)?-?\d{1,20}$/.test(String(value || ''));
+}
+
+function cleanText(value) {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function composePersonName(parts) {
+  const first = cleanText(parts.first);
+  const last = cleanText(parts.last);
+  const combined = [first, last].filter(Boolean).join(' ').trim();
+  const singles = (parts.singles || []).map(cleanText).filter(Boolean);
+  const single = singles.slice().sort((a, b) => b.length - a.length)[0] || '';
+  if (combined && single) return combined.length >= single.length ? combined : single;
+  return combined || single;
+}
+
+function isPaidStatus(status) {
+  const value = cleanText(status).toLowerCase();
+  if (!value) return false;
+  if (PAID_STATUS.has(value)) return true;
+  if (NOT_PAID_STATUS.has(value)) return false;
+  if (/(confirm|pagad|succeed)/.test(value)) return true;
+  if (/complete/.test(value) && !/incomplete/.test(value)) return true;
+  return false;
+}
+
+function moneyToCents(value, columnName) {
+  if (value == null || value === '') return 0;
+  let text = String(value).trim().replace(/\s/g, '');
+  if (/^-?\d+,\d{1,2}$/.test(text)) text = text.replace(',', '.');
+  const amount = Number(text);
+  if (!Number.isFinite(amount)) return 0;
+  const name = String(columnName || '').toLowerCase();
+  const asEur = /eur|euro|precio|price/.test(name);
+  const asCents = /cent|amount_total|unit_amount/.test(name);
+  if (asEur || (!asCents && Math.abs(amount - Math.round(amount)) > 1e-6)) {
+    return Number((amount * 100).toFixed(0));
+  }
+  return Math.round(amount);
 }
 
 function normId(value) {
@@ -501,59 +554,87 @@ function presentOutcome(outcome, bucket) {
   return { outcome, outcomeLabel: 'Sin resultado', outcomeDetail: '', badgeClass: 'badge badge-muted badge-wrap' };
 }
 
+function presentColumns(columns, candidates) {
+  const found = [];
+  const seen = new Set();
+  if (!columns) return found;
+  for (const cand of candidates) {
+    const col = columns.get(String(cand).toLowerCase());
+    if (col && !seen.has(col)) {
+      seen.add(col);
+      found.push(col);
+    }
+  }
+  return found;
+}
+
+const CUSTOMER_KEY_CANDIDATES = ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id', 'from_id'];
+const CUSTOMER_SINGLE_NAME = ['name', 'full_name', 'display_name', 'nombre', 'customer_name'];
+const CUSTOMER_XUI = ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username', 'iptv_user', 'xtream_username', 'panel_username'];
+
 function loadCustomers(db, spec, chatIds, customerIds) {
   const byChat = new Map();
   const byId = new Map();
   if (!spec) return { byChat, byId };
+  const keyCols = presentColumns(spec.columns, CUSTOMER_KEY_CANDIDATES);
+  const firstCols = presentColumns(spec.columns, ['first_name', 'firstname']);
+  const lastCols = presentColumns(spec.columns, ['last_name', 'lastname', 'surname', 'apellidos']);
+  const singleCols = presentColumns(spec.columns, CUSTOMER_SINGLE_NAME);
+  const xuiCols = presentColumns(spec.columns, CUSTOMER_XUI);
   const sqlCols = [
     selectAlias(spec.id, 'id'),
-    selectAlias(spec.chatId, 'chat_id'),
     selectAlias(spec.username, 'username'),
-    selectAlias(spec.name, 'name'),
-    selectAlias(spec.lastName, 'last_name'),
-    selectAlias(spec.xuiUsername, 'xui_username'),
+    ...keyCols.map((col, i) => `${q(col)} AS k_${i}`),
+    ...firstCols.map((col, i) => `${q(col)} AS first_${i}`),
+    ...lastCols.map((col, i) => `${q(col)} AS last_${i}`),
+    ...singleCols.map((col, i) => `${q(col)} AS single_${i}`),
+    ...xuiCols.map((col, i) => `${q(col)} AS xui_${i}`),
   ].join(', ');
 
   function remember(row) {
+    const keys = keyCols.map((_, i) => normId(row[`k_${i}`])).filter(Boolean);
+    const first = firstCols.map((_, i) => row[`first_${i}`]).find((value) => cleanText(value)) || '';
+    const last = lastCols.map((_, i) => row[`last_${i}`]).find((value) => cleanText(value)) || '';
+    const singles = singleCols.map((_, i) => row[`single_${i}`]);
+    const xuiRaw = xuiCols.map((_, i) => row[`xui_${i}`]).find((value) => cleanText(value)) || '';
     const item = {
       id: normId(row.id),
-      chatId: normId(row.chat_id),
+      chatId: keys[0] || '',
+      keys,
       username: row.username ? String(row.username).replace(/^@/, '') : '',
-      name: [row.name, row.last_name].filter((part) => part != null && String(part).trim() !== '').join(' ').trim(),
-      xui: row.xui_username ? maskMessageText(String(row.xui_username)).slice(0, 64) : '',
+      name: composePersonName({ first, last, singles }),
+      xui: xuiRaw ? maskMessageText(String(xuiRaw)).slice(0, 64) : '',
     };
     if (item.id) byId.set(item.id, item);
-    if (item.chatId) byChat.set(item.chatId, item);
+    for (const key of keys) byChat.set(key, item);
   }
 
-  if (spec.chatId) {
-    for (const chunk of chunks([...new Set(chatIds.filter(Boolean))], IN_CHUNK)) {
+  function pull(column, ids) {
+    for (const chunk of chunks([...new Set(ids.filter(Boolean))], IN_CHUNK)) {
       const marks = chunk.map(() => '?').join(', ');
       const rows = db.prepare(
-        `SELECT ${sqlCols} FROM ${q(spec.table)} WHERE CAST(${q(spec.chatId)} AS TEXT) IN (${marks})`
+        `SELECT ${sqlCols} FROM ${q(spec.table)} WHERE CAST(${q(column)} AS TEXT) IN (${marks})`
       ).all(...chunk);
       rows.forEach(remember);
     }
   }
-  if (spec.id) {
-    for (const chunk of chunks([...new Set(customerIds.filter(Boolean))], IN_CHUNK)) {
-      const marks = chunk.map(() => '?').join(', ');
-      const rows = db.prepare(
-        `SELECT ${sqlCols} FROM ${q(spec.table)} WHERE CAST(${q(spec.id)} AS TEXT) IN (${marks})`
-      ).all(...chunk);
-      rows.forEach(remember);
-    }
-  }
+
+  const lookupCols = keyCols.length ? keyCols : (spec.id ? [spec.id] : []);
+  for (const column of lookupCols) pull(column, chatIds);
+  if (spec.id) pull(spec.id, customerIds);
   return { byChat, byId };
 }
 
-function canonicalKey(chatId, customerId, byId) {
+function canonicalKey(chatId, customerId, byId, byChat) {
   const chat = normId(chatId);
   if (chat) return chat;
   const customer = normId(customerId);
   if (!customer) return '';
   const known = byId.get(customer);
   if (known && known.chatId) return known.chatId;
+  if (known && known.keys && known.keys.length) return known.keys[0];
+  // A veces customer_id guarda el id de Telegram, no el id interno.
+  if (byChat && byChat.has(customer)) return customer;
   return `c:${customer}`;
 }
 
@@ -606,7 +687,9 @@ function collectActivity(db, schema, fecha, startMs, endMs) {
   const payments = paymentSpec
     ? queryRange(db, paymentSpec, startMs, endMs, [
       selectAlias(paymentSpec.amountCents, 'amount_cents'),
+      selectAlias(paymentSpec.amountEuros, 'amount_eur'),
       selectAlias(paymentSpec.status, 'status'),
+      selectAlias(paymentSpec.paymentStatus, 'payment_status'),
       selectAlias(paymentSpec.xuiUsername, 'xui_username'),
     ])
     : [];
@@ -716,7 +799,7 @@ function buildDay(db, fecha, options) {
   }
 
   for (const row of activity.messageGroups) {
-    const key = canonicalKey(row.chat_id, row.customer_id, customers.byId);
+    const key = canonicalKey(row.chat_id, row.customer_id, customers.byId, customers.byChat);
     if (!key) continue;
     const bucket = bucketFor(key);
     bucket.messages += Number(row.n) || 0;
@@ -727,19 +810,23 @@ function buildDay(db, fecha, options) {
   }
 
   for (const item of activity.payments) {
-    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId);
+    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId, customers.byChat);
     if (!key) continue;
     const status = String(item.row.status ?? '').trim().toLowerCase();
     const paidValue = item.row.paid_at != null && item.row.paid_at !== '' ? item.row.paid_at : item.row.created_at;
     const paidKind = item.row.paid_at != null && item.row.paid_at !== '' && item.paidKind ? item.paidKind : item.createdKind;
     const createdOk = inRange(item.row.created_at, item.createdKind, startMs, endMs);
     const paidOk = inRange(paidValue, paidKind, startMs, endMs);
-    const hasStatus = schema.payments.status != null;
-    const isPaid = hasStatus ? PAID_STATUS.has(status) : paidOk;
-    const isPending = hasStatus ? PENDING_STATUS.has(status) : false;
+    const hasStatus = schema.payments.status != null || schema.payments.paymentStatus != null;
+    const isPaid = hasStatus
+      ? (isPaidStatus(item.row.status) || isPaidStatus(item.row.payment_status))
+      : paidOk;
+    const isPending = hasStatus ? (PENDING_STATUS.has(status) && !isPaid) : false;
     if (isPaid && paidOk) {
       const bucket = bucketFor(key);
-      const cents = Math.round(Number(item.row.amount_cents) || 0);
+      const cents = item.row.amount_eur != null && item.row.amount_eur !== ''
+        ? moneyToCents(item.row.amount_eur, schema.payments.amountEuros)
+        : moneyToCents(item.row.amount_cents, schema.payments.amountCents);
       bucket.salesCount += 1;
       if (cents > 0) bucket.salesCents += cents;
       const line = item.row.xui_username ? maskMessageText(String(item.row.xui_username)).slice(0, 64) : '';
@@ -754,7 +841,7 @@ function buildDay(db, fecha, options) {
 
   for (const item of activity.trials) {
     if (!inRange(item.row.created_at, item.createdKind, startMs, endMs)) continue;
-    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId);
+    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId, customers.byChat);
     if (!key) continue;
     const bucket = bucketFor(key);
     bucket.trialCount += 1;
@@ -765,7 +852,7 @@ function buildDay(db, fecha, options) {
   for (const item of activity.escalations) {
     if (!inRange(item.row.created_at, item.createdKind, startMs, endMs)) continue;
     if (!escalationCounts(item.row.status, schema.escalations.table)) continue;
-    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId);
+    const key = canonicalKey(item.row.chat_id, item.row.customer_id, customers.byId, customers.byChat);
     if (!key) continue;
     const bucket = bucketFor(key);
     bucket.escalationCount += 1;
@@ -776,7 +863,7 @@ function buildDay(db, fecha, options) {
   if (newCustomers === 0) {
     for (const row of activity.newCustomerRows) {
       if (!inRange(row.created_at, activity.customerKind, startMs, endMs)) continue;
-      const key = canonicalKey(row.chat_id, row.id, customers.byId);
+      const key = canonicalKey(row.chat_id, row.id, customers.byId, customers.byChat);
       const customer = customerFor(key) || {
         chatId: normId(row.chat_id),
         username: row.username ? String(row.username).replace(/^@/, '') : '',
