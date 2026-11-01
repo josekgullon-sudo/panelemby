@@ -431,3 +431,106 @@ test('la pestaña solo está en el menú de admin y el chat escapa el HTML', asy
   assert.match(threadHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(threadHtml, /<script>alert/);
 });
+
+test('sin @username sale el nombre y la venta confirmada de 59,99 € cae el 1 de noviembre', () => {
+  const file = fixture((db) => {
+    db.exec(`
+      CREATE TABLE customers (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER,
+        username TEXT,
+        name TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        nombre TEXT,
+        xui_user TEXT
+      );
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER,
+        role TEXT,
+        text TEXT,
+        created_at TEXT
+      );
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER,
+        amount REAL,
+        status TEXT,
+        created_at TEXT,
+        confirmed_at TEXT
+      );
+      CREATE TABLE trials (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER,
+        created_at TEXT
+      );
+      CREATE TABLE escalations (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER,
+        status TEXT,
+        created_at TEXT
+      );
+    `);
+    db.prepare(
+      `INSERT INTO customers (user_id, username, name, first_name, last_name, nombre, xui_user)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995722, null, null, 'ana', 'ruiz marcos', null, 'Anuska1796');
+    db.prepare(
+      `INSERT INTO customers (user_id, username, name, first_name, last_name, nombre)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(857995723, null, null, null, null, 'luis garcía');
+    db.prepare(
+      `INSERT INTO customers (user_id, username, first_name) VALUES (?, ?, ?)`
+    ).run(857995724, null, 'Pablo');
+    db.prepare(
+      'INSERT INTO messages (chat_id, role, text, created_at) VALUES (?, ?, ?, ?)'
+    ).run(857995722, 'user', 'Ya pagué', '2026-11-01 10:00:00');
+    db.prepare(
+      'INSERT INTO messages (chat_id, role, text, created_at) VALUES (?, ?, ?, ?)'
+    ).run(857995723, 'user', 'Hola', '2026-11-01 11:00:00');
+    db.prepare(
+      'INSERT INTO messages (chat_id, role, text, created_at) VALUES (?, ?, ?, ?)'
+    ).run(857995724, 'user', 'Otro pago', '2026-11-01 12:00:00');
+    // 59.99 es euros. confirmed_at en UTC cae a las 00:30 del 1 de noviembre en Madrid.
+    db.prepare(
+      'INSERT INTO payments (user_id, amount, status, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(857995722, 59.99, 'confirmed', '2026-10-31 18:00:00', '2026-10-31 23:30:00');
+    // 5999 entero sigue siendo céntimos.
+    db.prepare(
+      'INSERT INTO payments (user_id, amount, status, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(857995724, 5999, 'paid', '2026-11-01 12:00:00', '2026-11-01 12:00:00');
+  });
+
+  const day = conv.getDay('2026-11-01', { dbPath: file, hideTests: true, exclude: [] });
+  assert.equal(day.available, true);
+  assert.equal(day.summary.sales, 2);
+  assert.equal(day.summary.salesCents, 5999 + 5999);
+  assert.match(day.summary.salesLabel, /119,98/);
+
+  const ana = day.conversations.find((row) => row.chatId === '857995722');
+  assert.ok(ana);
+  assert.equal(ana.name, 'ana ruiz marcos');
+  assert.equal(ana.username, '');
+  assert.equal(ana.outcome, 'venta');
+  assert.match(ana.outcomeDetail, /59,99/);
+  assert.match(ana.outcomeDetail, /Anuska1796/);
+  assert.equal(ana.name.includes('857995722'), false);
+
+  const luis = day.conversations.find((row) => row.chatId === '857995723');
+  assert.equal(luis.name, 'luis garcía');
+  assert.equal(luis.outcome, 'sin_resultado');
+
+  const pablo = day.conversations.find((row) => row.chatId === '857995724');
+  assert.equal(pablo.name, 'Pablo');
+  assert.equal(pablo.outcome, 'venta');
+  assert.match(pablo.outcomeDetail, /59,99/);
+
+  const previous = conv.getDay('2026-10-31', { dbPath: file, hideTests: true, exclude: [] });
+  assert.equal(previous.summary.sales, 0);
+
+  const thread = conv.getThread('857995722', { dbPath: file, fecha: '2026-11-01', exclude: [] });
+  assert.equal(thread.name, 'ana ruiz marcos');
+  assert.equal(thread.outcome, 'venta');
+  assert.match(thread.outcomeDetail, /Anuska1796/);
+});
