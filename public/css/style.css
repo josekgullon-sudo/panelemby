@@ -1174,6 +1174,103 @@ select.plan-sync {
   .create-foot .btn { width: 100%; }
 }
 
+/* ---------- Conversaciones del bot ---------- */
+
+.conv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+.conv-toolbar .filter-row { flex: 1 1 280px; margin: 0; }
+.conv-zone { margin-top: 0; }
+.conv-notice { margin-bottom: 18px; }
+.conv-back { margin: 0 0 14px; }
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-h);
+  font-weight: 600;
+  color: var(--text);
+}
+.filter-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--green);
+}
+.cards-six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.card-sub {
+  margin-top: 6px;
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.card-warn {
+  border-color: rgba(232, 184, 69, 0.4);
+  background: linear-gradient(160deg, var(--amber-glow), var(--surface) 55%);
+}
+.card-warn .card-num { color: var(--amber); }
+.conv-list { display: flex; flex-direction: column; gap: 8px; }
+.conv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  color: inherit;
+  text-decoration: none;
+}
+.conv-row:hover { background: var(--surface-hover); text-decoration: none; }
+.conv-who { min-width: 0; display: flex; flex-direction: column; }
+.conv-name { font-weight: 700; overflow-wrap: anywhere; }
+.conv-user { color: var(--text-dim); font-size: 13px; }
+.conv-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: flex-start; }
+.conv-meta { grid-column: 1 / -1; color: var(--text-faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.badge-wrap { white-space: normal; }
+.chat-thread { display: flex; flex-direction: column; gap: 10px; }
+.chat-day {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-faint);
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.chat-day.is-current { color: var(--green); border-color: rgba(63, 212, 127, 0.35); }
+.bubble {
+  max-width: min(92%, 560px);
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--line-soft);
+}
+.bubble-customer { align-self: flex-start; background: var(--bg); border-bottom-left-radius: 4px; }
+.bubble-bot { align-self: flex-end; background: var(--green-glow); border-color: rgba(63, 212, 127, 0.28); border-bottom-right-radius: 4px; }
+.bubble-admin { align-self: flex-end; background: var(--amber-glow); border-color: rgba(232, 184, 69, 0.35); border-bottom-right-radius: 4px; }
+.bubble-meta { font-size: 11px; font-weight: 600; color: var(--text-faint); margin-bottom: 4px; }
+.bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-cut { margin-top: 6px; font-size: 11px; color: var(--text-faint); }
+
+@media (max-width: 1100px) {
+  .cards-six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .cards-six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .conv-toolbar { flex-direction: column; align-items: stretch; }
+  .conv-toolbar > .btn { width: 100%; }
+  .conv-row { grid-template-columns: 1fr; }
+  .conv-badges { justify-content: flex-start; }
+  .filter-check { min-height: 44px; }
+}
+
 /* ---------- Movimiento reducido ---------- */
 
 @media (prefers-reduced-motion: reduce) {
