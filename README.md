@@ -196,6 +196,21 @@ sudo -u panelemby npm install --omit=dev
 sudo systemctl restart panelemby
 ```
 
+## Conversaciones del bot de Telegram
+
+El admin tiene la pestaña **Conversaciones**. Revisa, día a día y en hora de Europa/Madrid, el bot de ventas de Telegram (servicio aparte, en la misma máquina). Los resellers no la ven.
+
+La base se abre solo en lectura. Si no está el fichero, la pestaña lo dice y el panel sigue arrancando. Ahí se ven los contadores del día (conversaciones, clientes nuevos, pruebas, ventas con el total en euros, pagos pendientes y escalados), el listado y el chat en burbujas. Las contraseñas y las claves de Stripe que aparezcan en un mensaje se enmascaran.
+
+En el `.env` del panel:
+
+```
+TELEGRAM_BOT_DB_PATH=/home/totalflix/telegram-ai/data/bot.sqlite
+TELEGRAM_BOT_EXCLUDE_CHAT_IDS=123456789,@TotalPlayerTV
+```
+
+`TELEGRAM_BOT_EXCLUDE_CHAT_IDS` son los chats de prueba del dueño (chat id o @usuario, separados por comas). En la pestaña se pueden ocultar. El bot guarda sus propios mensajes recortados a 500 caracteres.
+
 ## Puesta en marcha (primeros pasos en el panel)
 
 1. Entra en `http://IP:3000` con el admin creado por script.

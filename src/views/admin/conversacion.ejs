@@ -1,0 +1,44 @@
+<%- include('../partials/header', { title: thread.name || 'Conversación', nav: 'conversaciones' }) %>
+<% const hideFlag = ocultar ? '1' : '0'; %>
+
+<p class="conv-back"><a class="back-link" href="/admin/conversaciones?fecha=<%= fecha %>&ocultar=<%= hideFlag %>">← Volver al día</a></p>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2><%= thread.name %></h2>
+    <span class="<%= thread.badgeClass %>"><%= thread.outcomeLabel %><% if (thread.outcomeDetail) { %> · <%= thread.outcomeDetail %><% } %></span>
+  </div>
+  <p class="hint conv-id">
+    <% if (thread.usernameLabel) { %><%= thread.usernameLabel %> · <% } %>
+    Chat <%= thread.chatId %>
+    <% if (thread.xuiUsername) { %> · XUI <%= thread.xuiUsername %><% } %>
+  </p>
+  <% if (thread.isTest) { %><p class="hint">Este chat está en la lista de pruebas propias.</p><% } %>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Chat</h2></div>
+  <% if (thread.hitLimit) { %>
+    <p class="hint">Se muestran los 2.000 mensajes más recientes.</p>
+  <% } %>
+  <% if (thread.messages.length === 0) { %>
+    <p class="empty">Esta conversación no tiene mensajes guardados.</p>
+  <% } else { %>
+    <p class="hint"><%= thread.hint %></p>
+    <div class="chat-thread">
+      <% let prevDay = ''; %>
+      <% thread.messages.forEach(function (message) { %>
+        <% if (message.dateKey && message.dateKey !== prevDay) { prevDay = message.dateKey; %>
+          <div class="chat-day <%= message.selectedDay ? 'is-current' : '' %>"><%= message.dateLabel %></div>
+        <% } %>
+        <article class="bubble bubble-<%= message.kind %>">
+          <div class="bubble-meta"><%= message.who %> · <%= message.time %></div>
+          <div class="bubble-text"><%= message.text %></div>
+          <% if (message.cut) { %><div class="bubble-cut">Recortado a 500 caracteres</div><% } %>
+        </article>
+      <% }) %>
+    </div>
+  <% } %>
+</section>
+
+<%- include('../partials/footer') %>

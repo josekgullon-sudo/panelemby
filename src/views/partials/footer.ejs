@@ -3,6 +3,10 @@
 </div>
 <script>
 (function () {
+  var activeNav = document.querySelector('.side-nav a.is-active');
+  if (activeNav && activeNav.scrollIntoView && window.matchMedia('(max-width: 767px)').matches) {
+    activeNav.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }
   document.addEventListener('submit', function (ev) {
     var form = ev.target;
     if (!form || !form.getAttribute || ev.defaultPrevented) return;

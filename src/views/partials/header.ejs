@@ -17,6 +17,7 @@
   <symbol id="i-users" viewBox="0 0 16 16"><circle cx="5" cy="5" r="2.5"/><circle cx="11" cy="5" r="2.5"/><path d="M1 14c0-2.5 1.8-4 4-4s4 1.5 4 4zM9.5 10.4c.5-.3 1-.4 1.5-.4 2.2 0 4 1.5 4 4h-4.2"/></symbol>
   <symbol id="i-plan" viewBox="0 0 16 16"><path d="M8 1l7 4-7 4-7-4zM1 9l7 4 7-4"/></symbol>
   <symbol id="i-coin" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="6" ry="2.5"/><path d="M2 4v8c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V4M2 8c0 1.4 2.7 2.5 6 2.5S14 9.4 14 8"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16"><path d="M1.5 2.5h13v8.5H6.2L2 14.2V11H1.5z"/></symbol>
   <symbol id="i-wrench" viewBox="0 0 24 24"><path fill="currentColor" d="M22.7 19.3 13.6 10.2a5.5 5.5 0 0 0-7.4-7.1L9 5.9 7.1 7.8 4.3 5a5.5 5.5 0 0 0 7.1 7.4l9.1 9.1a1.5 1.5 0 0 0 2.1 0 1.5 1.5 0 0 0 .1-2.2z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M8 8h10v12H8z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M6 16H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 20h4l11-11-4-4L4 16v4z"/></symbol>
@@ -47,6 +48,9 @@
         <a href="/admin/creditos" class="<%= navKey === 'creditos' ? 'is-active' : '' %>">
           <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-coin"></use></svg>
           Créditos</a>
+        <a href="/admin/conversaciones" class="<%= navKey === 'conversaciones' ? 'is-active' : '' %>">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-chat"></use></svg>
+          Conversaciones</a>
       </nav>
     <% } else if (currentUser && currentUser.role === 'reseller') { %>
       <nav class="side-nav" aria-label="Principal">

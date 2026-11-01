@@ -30,6 +30,19 @@ function intEnv(name, fallback) {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+function pathOr(name, fallback) {
+  const value = (process.env[name] || '').trim();
+  if (!value || value.includes('PON_AQUI') || value.includes('cambia_esto')) return fallback;
+  return path.resolve(value);
+}
+
+function csvList(name) {
+  return (process.env[name] || '')
+    .split(/[,;\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 function envText(env, name) {
   const value = env[name];
   if (value == null) return '';
@@ -128,6 +141,12 @@ const config = {
   hotplayerApiKey: optional('HOTPLAYER_API_KEY'),
   hotplayerDomain: optional('HOTPLAYER_DOMAIN') || 'cisnerojo.click',
   hotplayerPort: intEnv('HOTPLAYER_PORT', 80),
+
+  // SQLite del bot de ventas de Telegram (otro servicio, misma máquina).
+  // Solo se lee. Si el fichero no está, la pestaña Conversaciones avisa.
+  telegramBotDbPath: pathOr('TELEGRAM_BOT_DB_PATH', '/home/totalflix/telegram-ai/data/bot.sqlite'),
+  // Chat ids numéricos o @usuarios de pruebas propias, separados por comas.
+  telegramBotExcludeChatIds: csvList('TELEGRAM_BOT_EXCLUDE_CHAT_IDS'),
 };
 
 if (!['disable', 'vitrina'].includes(config.expiryMode)) {

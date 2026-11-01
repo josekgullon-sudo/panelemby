@@ -5,6 +5,7 @@ const db = require('../db/database');
 const accounts = require('../services/accounts');
 const { memberIds, normalizeMemberIds, startSyncInBackground, jobSnapshot } = require('../services/xuiSync');
 const { requirePanelRole } = require('../middleware/auth');
+const conversations = require('../services/telegramConversations');
 
 const router = express.Router();
 router.use(requirePanelRole('admin'));
@@ -711,6 +712,48 @@ router.post('/resellers/:id/xui', (req, res) => {
   } catch (err) {
     backWithError(req, res, err, '/admin/resellers');
   }
+});
+
+function hideOwnTests(query) {
+  const value = query && query.ocultar;
+  const last = Array.isArray(value) ? value[value.length - 1] : value;
+  if (last == null || last === '') return true;
+  return last !== '0' && last !== 'false';
+}
+
+// Conversaciones del bot de Telegram. Solo admin: el router ya exige ese rol.
+router.get('/conversaciones', (req, res) => {
+  const fecha = conversations.parseFecha(req.query.fecha) || conversations.todayMadrid();
+  const ocultar = hideOwnTests(req.query);
+  const day = conversations.getDay(fecha, { hideTests: ocultar });
+  res.render('admin/conversaciones', {
+    fecha,
+    ocultar,
+    day,
+    today: conversations.todayMadrid(),
+    prevFecha: conversations.shiftFecha(fecha, -1),
+    nextFecha: conversations.shiftFecha(fecha, 1),
+  });
+});
+
+router.get('/conversaciones/:chatKey', (req, res) => {
+  const fecha = conversations.parseFecha(req.query.fecha) || conversations.todayMadrid();
+  const ocultar = hideOwnTests(req.query);
+  const thread = conversations.getThread(req.params.chatKey, { fecha, hideTests: ocultar });
+  if (!thread) {
+    return res.status(404).render('error', { code: 404, message: 'Conversación no encontrada' });
+  }
+  if (!thread.available) {
+    return res.render('admin/conversaciones', {
+      fecha,
+      ocultar,
+      day: thread,
+      today: conversations.todayMadrid(),
+      prevFecha: conversations.shiftFecha(fecha, -1),
+      nextFecha: conversations.shiftFecha(fecha, 1),
+    });
+  }
+  res.render('admin/conversacion', { fecha, ocultar, thread });
 });
 
 module.exports = router;

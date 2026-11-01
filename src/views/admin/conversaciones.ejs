@@ -1,0 +1,89 @@
+<%- include('../partials/header', { title: 'Conversaciones', nav: 'conversaciones' }) %>
+<% const hideFlag = ocultar ? '1' : '0'; %>
+
+<div class="conv-toolbar">
+  <a class="btn btn-ghost" href="/admin/conversaciones?fecha=<%= prevFecha %>&ocultar=<%= hideFlag %>">Día anterior</a>
+  <form method="get" action="/admin/conversaciones" class="filter-row conv-filters">
+    <input type="hidden" name="ocultar" value="0">
+    <label class="filter-field">Fecha
+      <input type="date" name="fecha" value="<%= fecha %>" required>
+    </label>
+    <label class="filter-check">
+      <input type="checkbox" name="ocultar" value="1" <%= ocultar ? 'checked' : '' %>>
+      Ocultar pruebas propias
+    </label>
+    <button class="btn btn-primary" type="submit">Ver día</button>
+  </form>
+  <a class="btn btn-ghost" href="/admin/conversaciones?fecha=<%= nextFecha %>&ocultar=<%= hideFlag %>">Día siguiente</a>
+</div>
+
+<% if (!day.available) { %>
+  <div class="banner banner-warn conv-notice" role="status"><%= day.notice %></div>
+<% } else { %>
+  <p class="hint conv-zone">Día <%= fecha %> en hora de Europa/Madrid.<% if (fecha !== today) { %> <a href="/admin/conversaciones?fecha=<%= today %>&ocultar=<%= hideFlag %>">Volver a hoy</a><% } %></p>
+
+  <div class="cards cards-six">
+    <div class="card">
+      <div class="card-label">Conversaciones</div>
+      <div class="card-num"><%= day.summary.conversations %></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Clientes nuevos</div>
+      <div class="card-num"><%= day.summary.newCustomers == null ? '—' : day.summary.newCustomers %></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Pruebas</div>
+      <div class="card-num"><%= day.summary.trials == null ? '—' : day.summary.trials %></div>
+    </div>
+    <div class="card <%= day.summary.sales > 0 ? 'card-accent' : '' %>">
+      <div class="card-label">Ventas</div>
+      <div class="card-num"><%= day.summary.sales == null ? '—' : day.summary.sales %></div>
+      <% if (day.summary.sales != null) { %><div class="card-sub"><%= day.summary.salesLabel %></div><% } %>
+    </div>
+    <div class="card <%= day.summary.pendingPayments > 0 ? 'card-warn' : '' %>">
+      <div class="card-label">Pagos pendientes</div>
+      <div class="card-num"><%= day.summary.pendingPayments == null ? '—' : day.summary.pendingPayments %></div>
+    </div>
+    <div class="card <%= day.summary.openEscalations > 0 ? 'card-alert' : '' %>">
+      <div class="card-label">Escalados abiertos</div>
+      <div class="card-num"><%= day.summary.openEscalations == null ? '—' : day.summary.openEscalations %></div>
+    </div>
+  </div>
+
+  <% if (day.gapNote) { %><p class="hint"><%= day.gapNote %></p><% } %>
+  <% if (day.hiddenTests > 0) { %>
+    <p class="hint"><%= day.hiddenTests %> <%= day.hiddenTests === 1 ? 'chat de prueba oculto' : 'chats de prueba ocultos' %>. <a href="/admin/conversaciones?fecha=<%= fecha %>&ocultar=0">Mostrar</a></p>
+  <% } else if (!day.excludeConfigured) { %>
+    <p class="hint">Para ocultar tus pruebas (por ejemplo @TotalPlayerTV), añade sus chat id o @usuario en TELEGRAM_BOT_EXCLUDE_CHAT_IDS.</p>
+  <% } %>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Del día <span class="count"><%= day.conversations.length %></span></h2></div>
+    <% if (day.conversations.length === 0) { %>
+      <p class="empty">No hay conversaciones este día.</p>
+    <% } else { %>
+      <div class="conv-list">
+        <% day.conversations.forEach(function (chat) { %>
+          <a class="conv-row" href="/admin/conversaciones/<%= encodeURIComponent(chat.chatId) %>?fecha=<%= fecha %>&ocultar=<%= hideFlag %>">
+            <span class="conv-who">
+              <span class="conv-name"><%= chat.name %></span>
+              <% if (chat.usernameLabel && chat.name !== chat.usernameLabel) { %>
+                <span class="conv-user"><%= chat.usernameLabel %></span>
+              <% } %>
+            </span>
+            <span class="conv-badges">
+              <% if (chat.isTest) { %><span class="badge badge-muted">Prueba propia</span><% } %>
+              <span class="<%= chat.badgeClass %>"><%= chat.outcomeLabel %><% if (chat.outcomeDetail) { %> · <%= chat.outcomeDetail %><% } %></span>
+            </span>
+            <span class="conv-meta">
+              <%= chat.messageCount === 0 ? 'Sin mensajes' : (chat.messageCount === 1 ? '1 mensaje' : chat.messageCount + ' mensajes') %>
+              · <%= chat.when %>
+            </span>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </section>
+<% } %>
+
+<%- include('../partials/footer') %>
