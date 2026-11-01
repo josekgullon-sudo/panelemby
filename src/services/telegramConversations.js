@@ -15,6 +15,8 @@ const IN_CHUNK = 300;
 
 const TABLE_CANDIDATES = {
   customers: ['customers'],
+  // El nombre visible del chat está en chats.tg_name, no solo en customers.
+  chats: ['chats'],
   messages: ['messages'],
   payments: ['payments'],
   trials: ['trials'],
@@ -29,8 +31,8 @@ const COLUMN_CANDIDATES = {
     // chat_id gana si existe. user_id / telegram_id cubren el esquema en el que
     // el id de Telegram no se llama chat_id (en privado suele ser el mismo número).
     chatId: ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id', 'from_id'],
-    username: ['username', 'telegram_username', 'tg_username', 'user_name'],
-    name: ['name', 'full_name', 'display_name', 'nombre', 'customer_name'],
+    username: ['tg_username', 'username', 'telegram_username', 'user_name'],
+    name: ['tg_name', 'name', 'full_name', 'display_name', 'nombre', 'customer_name'],
     firstName: ['first_name', 'firstname'],
     lastName: ['last_name', 'lastname', 'surname', 'apellidos'],
     xuiUsername: ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username', 'iptv_user', 'xtream_username', 'panel_username'],
@@ -57,7 +59,10 @@ const COLUMN_CANDIDATES = {
     status: ['status', 'state'],
     paymentStatus: ['payment_status', 'stripe_payment_status'],
     createdAt: ['created_at', 'created', 'inserted_at'],
-    paidAt: ['paid_at', 'completed_at', 'confirmed_at', 'paid_on'],
+    // En el bot real no hay paid_at: updated_at (ms) es el momento en que pasa a done.
+    paidAt: ['paid_at', 'completed_at', 'confirmed_at', 'paid_on', 'updated_at'],
+    lineUsername: ['line_username'],
+    newUsername: ['new_username'],
     xuiUsername: ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username'],
   },
   trials: {
@@ -75,10 +80,12 @@ const COLUMN_CANDIDATES = {
     createdAt: ['created_at', 'created', 'opened_at'],
   },
 };
+// Misma lectura de columnas: chats.tg_name / tg_username / chat_id.
+COLUMN_CANDIDATES.chats = COLUMN_CANDIDATES.customers;
 
 const PAID_STATUS = new Set([
   'complete', 'completed', 'paid', 'succeeded', 'success', 'paid_out',
-  'confirmed', 'confirmado', 'pagado', 'pago_confirmado', 'aprobado',
+  'confirmed', 'confirmado', 'pagado', 'pago_confirmado', 'aprobado', 'done',
 ]);
 const NOT_PAID_STATUS = new Set([
   'unpaid', 'incomplete', 'incomplete_expired', 'expired', 'failed',
@@ -569,7 +576,7 @@ function presentColumns(columns, candidates) {
 }
 
 const CUSTOMER_KEY_CANDIDATES = ['chat_id', 'telegram_chat_id', 'tg_chat_id', 'user_id', 'telegram_id', 'tg_id', 'telegram_user_id', 'from_id'];
-const CUSTOMER_SINGLE_NAME = ['name', 'full_name', 'display_name', 'nombre', 'customer_name'];
+const CUSTOMER_SINGLE_NAME = ['tg_name', 'name', 'full_name', 'display_name', 'nombre', 'customer_name'];
 const CUSTOMER_XUI = ['xui_username', 'xui_user', 'xui_line', 'line_username', 'line_user', 'iptv_username', 'iptv_user', 'xtream_username', 'panel_username'];
 
 function loadCustomers(db, spec, chatIds, customerIds) {
@@ -690,6 +697,8 @@ function collectActivity(db, schema, fecha, startMs, endMs) {
       selectAlias(paymentSpec.amountEuros, 'amount_eur'),
       selectAlias(paymentSpec.status, 'status'),
       selectAlias(paymentSpec.paymentStatus, 'payment_status'),
+      selectAlias(paymentSpec.lineUsername, 'line_username'),
+      selectAlias(paymentSpec.newUsername, 'new_username'),
       selectAlias(paymentSpec.xuiUsername, 'xui_username'),
     ])
     : [];
@@ -728,9 +737,14 @@ function collectActivity(db, schema, fecha, startMs, endMs) {
   return { msgKind, messageGroups, payments, trials, escalations, newCustomerRows, customerKind };
 }
 
+function saleLine(row) {
+  return [row.line_username, row.new_username, row.xui_username].map(cleanText).find(Boolean) || '';
+}
+
 function buildDay(db, fecha, options) {
   const schema = {
     customers: resolveTable(db, 'customers'),
+    chats: resolveTable(db, 'chats'),
     messages: resolveTable(db, 'messages'),
     payments: resolveTable(db, 'payments'),
     trials: resolveTable(db, 'trials'),
@@ -766,11 +780,23 @@ function buildDay(db, fecha, options) {
   for (const row of activity.newCustomerRows) takeIds(row.chat_id, row.id);
 
   const customers = loadCustomers(db, schema.customers, chatIds, customerIds);
+  const chats = loadCustomers(db, schema.chats, chatIds, []);
 
   function customerFor(key) {
     if (customers.byChat.has(key)) return customers.byChat.get(key);
     if (key.startsWith('c:')) return customers.byId.get(key.slice(2)) || null;
     return null;
+  }
+
+  function identityFor(key) {
+    const chat = chats.byChat.get(key) || null;
+    const customer = customerFor(key);
+    return {
+      customer,
+      username: (chat && chat.username) || (customer && customer.username) || '',
+      name: (chat && chat.name) || (customer && customer.name) || '',
+      chatId: (chat && chat.chatId) || (customer && customer.chatId) || '',
+    };
   }
 
   const buckets = new Map();
@@ -829,8 +855,8 @@ function buildDay(db, fecha, options) {
         : moneyToCents(item.row.amount_cents, schema.payments.amountCents);
       bucket.salesCount += 1;
       if (cents > 0) bucket.salesCents += cents;
-      const line = item.row.xui_username ? maskMessageText(String(item.row.xui_username)).slice(0, 64) : '';
-      if (line) bucket.xui = line;
+      const line = saleLine(item.row);
+      if (line) bucket.xui = maskMessageText(line).slice(0, 64);
       touch(bucket, toDate(paidValue, paidKind)?.getTime());
     } else if (isPending && createdOk) {
       const bucket = bucketFor(key);
@@ -882,9 +908,10 @@ function buildDay(db, fecha, options) {
   let openEscalations = schema.escalations ? 0 : null;
 
   for (const bucket of buckets.values()) {
-    const customer = customerFor(bucket.key);
-    const username = customer ? customer.username : '';
-    const chatId = customer && customer.chatId ? customer.chatId : (bucket.key.startsWith('c:') ? '' : bucket.key);
+    const who = identityFor(bucket.key);
+    const customer = who.customer;
+    const username = who.username;
+    const chatId = who.chatId || (bucket.key.startsWith('c:') ? '' : bucket.key);
     const test = isExcluded(chatId || bucket.key, username, exclude);
     if (test && hideTests) {
       hiddenTests += 1;
@@ -896,7 +923,7 @@ function buildDay(db, fecha, options) {
     const last = bucket.lastMs == null ? null : new Date(bucket.lastMs);
     const firstLabel = formatTime(first);
     const lastLabel = formatTime(last);
-    const name = maskMessageText(customer && customer.name ? customer.name : '').trim();
+    const name = maskMessageText(who.name || '').trim();
     conversations.push({
       chatId: bucket.key,
       name: name || (username ? `@${username}` : `Chat ${bucket.key}`),
@@ -1020,22 +1047,26 @@ function getThread(chatKey, options = {}) {
   try {
     const schema = {
       customers: resolveTable(opened.db, 'customers'),
+      chats: resolveTable(opened.db, 'chats'),
       messages: resolveTable(opened.db, 'messages'),
     };
     if (!schema.messages) return unavailable(fecha, day.notice, day.excludeConfigured);
     const loaded = loadThreadMessages(opened.db, schema, key);
     const row = day.conversations.find((item) => item.chatId === key) || null;
+    const lookup = key.startsWith('c:') ? [] : [key];
     const customers = loadCustomers(
       opened.db,
       schema.customers,
-      key.startsWith('c:') ? [] : [key],
+      lookup,
       key.startsWith('c:') ? [key.slice(2)] : []
     );
+    const chats = loadCustomers(opened.db, schema.chats, lookup, []);
     const customer = key.startsWith('c:') ? customers.byId.get(key.slice(2)) : customers.byChat.get(key);
-    if (!row && loaded.total === 0 && !customer) return null;
+    const chat = chats.byChat.get(key) || null;
+    if (!row && loaded.total === 0 && !customer && !chat) return null;
 
     const exclude = normalizeExclude(options.exclude ?? config.telegramBotExcludeChatIds);
-    const username = customer ? customer.username : row ? row.username : '';
+    const username = (chat && chat.username) || (customer && customer.username) || (row ? row.username : '');
     const isTest = isExcluded(customer && customer.chatId ? customer.chatId : key, username, exclude);
     const outcome = row
       ? {
@@ -1065,9 +1096,8 @@ function getThread(chatKey, options = {}) {
       };
     });
 
-    const name = customer && customer.name
-      ? maskMessageText(customer.name).trim()
-      : row ? row.name : `Chat ${key}`;
+    const rawName = (chat && chat.name) || (customer && customer.name) || (row ? row.name : '');
+    const name = rawName ? maskMessageText(rawName).trim() : `Chat ${key}`;
 
     return {
       available: true,

@@ -534,3 +534,126 @@ test('sin @username sale el nombre y la venta confirmada de 59,99 € cae el 1 d
   assert.equal(thread.outcome, 'venta');
   assert.match(thread.outcomeDetail, /Anuska1796/);
 });
+
+test('el esquema real usa chats.tg_name, status done y updated_at en milisegundos', () => {
+  const updatedAt = 1793550981053;
+  const createdAt = updatedAt - 3 * 24 * 3600 * 1000;
+  const file = fixture((db) => {
+    db.exec(`
+      CREATE TABLE chats (
+        tg_name TEXT,
+        tg_username TEXT,
+        chat_id INTEGER
+      );
+      CREATE TABLE customers (
+        chat_id INTEGER,
+        tg_username TEXT,
+        tg_name TEXT,
+        line_id TEXT,
+        line_username TEXT,
+        mp_user_id TEXT,
+        mp_domain_id TEXT,
+        created_at INTEGER,
+        last_repair_at INTEGER,
+        exp_ts INTEGER,
+        last_check INTEGER,
+        verified INTEGER,
+        is_trial INTEGER
+      );
+      CREATE TABLE payments (
+        chat_id INTEGER,
+        status TEXT,
+        detail TEXT,
+        new_username TEXT,
+        line_username TEXT,
+        amount_cents INTEGER,
+        plan TEXT,
+        connections INTEGER,
+        line_id TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER,
+        role TEXT,
+        text TEXT,
+        created_at INTEGER
+      );
+    `);
+    db.prepare('INSERT INTO chats (tg_name, tg_username, chat_id) VALUES (?, ?, ?)').run('ana ruiz marcos', '', 857995722);
+    db.prepare('INSERT INTO chats (tg_name, tg_username, chat_id) VALUES (?, ?, ?)').run('pendiente', '', 857995700);
+    db.prepare('INSERT INTO chats (tg_name, tg_username, chat_id) VALUES (?, ?, ?)').run('con linea', 'alguien', 857995701);
+    db.prepare('INSERT INTO chats (tg_name, tg_username, chat_id) VALUES (?, ?, ?)').run('', '', 857995702);
+    db.prepare(
+      `INSERT INTO customers (
+         chat_id, tg_username, tg_name, line_id, line_username, mp_user_id, mp_domain_id,
+         created_at, last_repair_at, exp_ts, last_check, verified, is_trial
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995722, '', '', 'L1', '', null, null, createdAt, null, null, null, 1, 0);
+    db.prepare(
+      `INSERT INTO customers (
+         chat_id, tg_username, tg_name, line_id, line_username, mp_user_id, mp_domain_id,
+         created_at, last_repair_at, exp_ts, last_check, verified, is_trial
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995702, '', 'solo customers', null, '', null, null, createdAt, null, null, null, 1, 0);
+    db.prepare(
+      `INSERT INTO payments (
+         chat_id, status, detail, new_username, line_username, amount_cents, plan, connections, line_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995722, 'done', null, 'Anuska1796', '', 5999, '12m', 1, 'L1', createdAt, updatedAt);
+    db.prepare(
+      `INSERT INTO payments (
+         chat_id, status, detail, new_username, line_username, amount_cents, plan, connections, line_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995700, 'pending', null, '', '', 1990, '1m', 1, null, updatedAt, updatedAt);
+    db.prepare(
+      `INSERT INTO payments (
+         chat_id, status, detail, new_username, line_username, amount_cents, plan, connections, line_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(857995701, 'done', null, 'NoUsar', 'LineaReal', 1500, '3m', 1, 'L2', updatedAt, updatedAt);
+    const message = db.prepare('INSERT INTO messages (chat_id, role, text, created_at) VALUES (?, ?, ?, ?)');
+    message.run(857995722, 'user', 'Ya está pagado', updatedAt);
+    message.run(857995700, 'user', 'Luego pago', updatedAt);
+    message.run(857995701, 'user', 'Con linea', updatedAt);
+    message.run(857995702, 'user', 'Nombre en customers', updatedAt);
+  });
+
+  const day = conv.getDay('2026-11-01', { dbPath: file, hideTests: true, exclude: [] });
+  assert.equal(day.available, true);
+  assert.equal(day.summary.sales, 2);
+  assert.equal(day.summary.salesCents, 5999 + 1500);
+  assert.match(day.summary.salesLabel, /74,99/);
+  assert.equal(day.summary.pendingPayments, 1);
+
+  const ana = day.conversations.find((row) => row.chatId === '857995722');
+  assert.ok(ana);
+  assert.equal(ana.name, 'ana ruiz marcos');
+  assert.equal(ana.username, '');
+  assert.equal(ana.outcome, 'venta');
+  assert.match(ana.outcomeDetail, /59,99/);
+  assert.match(ana.outcomeDetail, /Anuska1796/);
+  assert.equal(ana.outcomeDetail.includes('Chat'), false);
+
+  const pending = day.conversations.find((row) => row.chatId === '857995700');
+  assert.equal(pending.outcome, 'pago_pendiente');
+  assert.equal(pending.name, 'pendiente');
+
+  const fromCustomer = day.conversations.find((row) => row.chatId === '857995702');
+  assert.equal(fromCustomer.name, 'solo customers');
+  assert.equal(fromCustomer.outcome, 'sin_resultado');
+
+  const lined = day.conversations.find((row) => row.chatId === '857995701');
+  assert.equal(lined.outcome, 'venta');
+  assert.match(lined.outcomeDetail, /LineaReal/);
+  assert.equal(lined.outcomeDetail.includes('NoUsar'), false);
+  assert.equal(lined.usernameLabel, '@alguien');
+
+  const before = conv.getDay('2026-10-31', { dbPath: file, hideTests: true, exclude: [] });
+  assert.equal(before.summary.sales, 0);
+
+  const thread = conv.getThread('857995722', { dbPath: file, fecha: '2026-11-01', exclude: [] });
+  assert.equal(thread.name, 'ana ruiz marcos');
+  assert.equal(thread.outcome, 'venta');
+  assert.match(thread.outcomeDetail, /Anuska1796/);
+});
